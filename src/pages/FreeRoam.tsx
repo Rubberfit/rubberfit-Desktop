@@ -1,22 +1,93 @@
+import { lazy, Suspense, useState } from "react"
+
+import { PageHeader } from "@/components/patterns/page-header"
+import { PageShell } from "@/components/patterns/page-shell"
+import type { PartTemplate } from "@/components/cutting-engine/PresetDimensionSelector"
+import type { StockConfig } from "@/components/cutting-engine/stock-preview-configurator"
+
+/**
+ * Free-roam nester — CAD-style manual part placement. Lives on its
+ * own route so the pre-selection chrome (stock preview, preset
+ * dimension selector, cut-list upload) that Auto nest requires is
+ * absent — Free roam builds its own UI inside the three-column
+ * workspace (parts added via the queue panel, stock editor lives in
+ * the Saved-layouts rail, canvas is the CAD surface).
+ *
+ * TODO(desktop): saved layouts are not yet persisted — the
+ * `FreeRoamSavedLayoutsRail` shows an empty list and `recordCut`
+ * inside `FreeRoamContent` is a toast-only stub until a local
+ * storage backend is wired up.
+ */
+
+// Lazy-load the CAD shell — Konva and react-konva are heavy and we
+// shouldn't pull them in until the operator actually lands here.
+const FreeRoamContent = lazy(() => import("@/components/cutting-engine/free-roam-content"))
+
+const DEFAULT_STOCK: StockConfig = {
+  width: 96,
+  length: 48,
+  material: "",
+  thickness: 0.5,
+}
+
+// Sample parts seeded so the operator has something to click-place
+// on a fresh visit. Replaced by real part entry (CSV upload + manual
+// dialog) in a later commit.
+const SEED_PARTS: PartTemplate[] = [
+  {
+    id: "seed-rect-24x12",
+    label: '24" × 12"',
+    summary: "Rectangle",
+    partType: "rectangle",
+    width: 24,
+    length: 12,
+    quantity: 4,
+  } as PartTemplate,
+  {
+    id: "seed-rect-18x18",
+    label: '18" × 18"',
+    summary: "Rectangle",
+    partType: "rectangle",
+    width: 18,
+    length: 18,
+    quantity: 2,
+  } as PartTemplate,
+  {
+    id: "seed-disc-10",
+    label: '⌀ 10"',
+    summary: "Disc",
+    partType: "cylinder",
+    diameter: 10,
+    quantity: 3,
+  } as PartTemplate,
+]
+
 export function FreeRoamPage() {
+  const [parts, setParts] = useState<PartTemplate[]>(SEED_PARTS)
+  const [stock, setStock] = useState<StockConfig>(DEFAULT_STOCK)
+
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-3xl font-semibold tracking-tight">Free Roam</h1>
-        <p className="text-muted-foreground">CAD-style manual placement</p>
-      </header>
+    <PageShell variant="dense">
+      <PageHeader
+        title="Free roam · Beta"
+        subtitle="Manually author a layout — drag parts onto the sheet, snap to grid, rotate, commit as a cut. Same reusable-offcut (amber) and waste (red) semantics as Auto nest."
+      />
 
-      <div className="rounded-md border border-warning-border bg-warning-bg px-4 py-3 text-sm text-warning-foreground">
-        Migration in progress — the Konva canvas and tool palette land in a later phase.
-      </div>
-
-      <section className="rounded-lg border border-border bg-card p-6 text-card-foreground">
-        <h2 className="text-lg font-medium">Coming soon</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          A desktop-class 2D workspace for positioning rubber parts by hand: snap-to-edge, rotate,
-          duplicate, and export. Target frame-rate on modest hardware is 60 fps.
-        </p>
-      </section>
-    </div>
+      <Suspense
+        fallback={
+          <div className="flex h-96 items-center justify-center text-muted-foreground text-sm">
+            Loading free-roam workspace…
+          </div>
+        }
+      >
+        <FreeRoamContent
+          parts={parts}
+          onPartsChange={setParts}
+          stock={stock}
+          onStockChange={setStock}
+          refreshKey={0}
+        />
+      </Suspense>
+    </PageShell>
   )
 }

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+build/
+src-tauri/target/
+package-lock.json
+Cargo.lock
+.git/

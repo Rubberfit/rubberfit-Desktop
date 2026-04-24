@@ -1,0 +1,20 @@
+{
+  "_description": "Six 10x5 rects with rotation allowed on a 48x96 fresh bin",
+  "bins": [{ "binId": "b1", "width": 48, "height": 96, "kind": "fresh" }],
+  "items": [
+    {
+      "shapeId": "rect-a",
+      "quantity": 6,
+      "polygon": [
+        { "x": 0, "y": 0 },
+        { "x": 10, "y": 0 },
+        { "x": 10, "y": 5 },
+        { "x": 0, "y": 5 }
+      ],
+      "allowRotation": true
+    }
+  ],
+  "clearance": 0.125,
+  "mode": "fast",
+  "seed": 42
+}

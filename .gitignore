@@ -35,6 +35,10 @@ dist-ssr
 src-tauri/target
 src-tauri/gen
 src-tauri/Cargo.lock
+# Workspace-level Cargo output (new root Cargo.toml in Phase 1 engine
+# migration — target/ + Cargo.lock now land at the repo root).
+/target
+/Cargo.lock
 
 # OS
 Thumbs.db

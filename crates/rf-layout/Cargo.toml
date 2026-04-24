@@ -1,0 +1,37 @@
+[package]
+name = "rf-layout"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "2D nesting engine for RF Portal"
+
+[dependencies]
+rf-geom = { path = "../rf-geom" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+jagua-rs = { git = "https://github.com/JeroenGar/jagua-rs", tag = "0.7.1", features = ["spp", "bpp"] }
+rand = "0.10"
+rand_distr = "0.6"
+rand_xoshiro = "0.8"
+slotmap = "1.0"
+float-cmp = "0.10"
+itertools = "0.14"
+log = "0.4"
+ordered-float = "5"
+bin-packing = { version = "=0.3.0", default-features = false, features = ["two-d"] }
+# LBF reference BPP optimizer from jagua-rs workspace. Used by the opt-in
+# pack_lbf() entry point. Bench empirically showed 32/37 placed on the
+# production rectangle fixture + 100% placement on trapezoid / concave cone
+# fixtures — see .claude/research/sparrow-integration/lbf-finding.md.
+lbf = { git = "https://github.com/JeroenGar/jagua-rs", tag = "0.7.1" }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+criterion = { version = "0.7", default-features = false }
+
+[[bench]]
+name = "parity_benchmark"
+harness = false

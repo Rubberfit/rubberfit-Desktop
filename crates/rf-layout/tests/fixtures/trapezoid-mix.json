@@ -1,0 +1,42 @@
+{
+  "_description": "Three trapezoids (two of each) with varying top/bottom/height on a 48x96 fresh bin",
+  "bins": [{ "binId": "b1", "width": 48, "height": 96, "kind": "fresh" }],
+  "items": [
+    {
+      "shapeId": "trap-a",
+      "quantity": 2,
+      "polygon": [
+        { "x": 0, "y": 0 },
+        { "x": 10, "y": 0 },
+        { "x": 8, "y": 4 },
+        { "x": 2, "y": 4 }
+      ],
+      "allowRotation": true
+    },
+    {
+      "shapeId": "trap-b",
+      "quantity": 2,
+      "polygon": [
+        { "x": 0, "y": 0 },
+        { "x": 8, "y": 0 },
+        { "x": 6, "y": 5 },
+        { "x": 2, "y": 5 }
+      ],
+      "allowRotation": true
+    },
+    {
+      "shapeId": "trap-c",
+      "quantity": 2,
+      "polygon": [
+        { "x": 0, "y": 0 },
+        { "x": 8, "y": 0 },
+        { "x": 8, "y": 3 },
+        { "x": 0, "y": 3 }
+      ],
+      "allowRotation": true
+    }
+  ],
+  "clearance": 0.125,
+  "mode": "fast",
+  "seed": 42
+}

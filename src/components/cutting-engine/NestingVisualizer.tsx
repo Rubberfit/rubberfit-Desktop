@@ -228,7 +228,7 @@ function buildTagMap(basePreview: SimplePartPreview | null, multiSheet: MultiShe
   )
 }
 
-// eslint-disable-next-line max-lines-per-function
+ 
 export default function NestingVisualizer({
   defaultRollWidth = 48,
   defaultRollLength = 96,
@@ -423,6 +423,7 @@ export default function NestingVisualizer({
     defaultCutWidth,
     defaultCutHeight,
     defaultQty,
+    isEmptySheet,
   ])
 
   const baseSimplePreview =

@@ -52,7 +52,7 @@ function LayoutLabel() {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line max-lines-per-function
+ 
 export function AutoNestPage() {
   const [presetParts, setPresetParts] = useState<PartTemplate[]>([])
   const [uploadedParts, setUploadedParts] = useState<PartTemplate[]>([])

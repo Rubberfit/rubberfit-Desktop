@@ -47,7 +47,7 @@ function inNfp(p: Vector, nfp: Polygon[]): boolean {
   return false
 }
 
-// eslint-disable-next-line complexity -- vendor algorithm
+ 
 function searchStartPoint(A: Part, B: Part, inside: boolean, NFP?: Polygon[]): Vector | null {
   const AP = A.points.slice(0)
   const BP = B.points.slice(0)
@@ -144,7 +144,7 @@ function noFitRectanglePolygon(A: Part, B: Part): Polygon | null {
   ])
 }
 
-// eslint-disable-next-line complexity -- vendor algorithm
+ 
 function noFitPolygon(A: Part, B: Part, inside = false, edges = false): Polygon[] {
   let minA = A.points[0].y
   let minAindex = 0

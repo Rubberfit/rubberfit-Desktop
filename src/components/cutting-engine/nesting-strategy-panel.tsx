@@ -42,7 +42,7 @@ function getStepNote(
   return map[cur] ?? ""
 }
 
-// eslint-disable-next-line max-lines-per-function
+ 
 export default function NestingStrategyPanel({
   scored,
   activeId,

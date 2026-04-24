@@ -20,7 +20,7 @@ export interface PlaceResult {
   unplaced: Part[]
 }
 
-// eslint-disable-next-line complexity -- vendor algorithm
+ 
 export function place(
   bins: Bin[],
   parts: Part[],

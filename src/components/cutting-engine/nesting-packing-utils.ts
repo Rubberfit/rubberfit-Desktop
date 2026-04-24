@@ -507,7 +507,7 @@ export function packIntoFreeRects(
   return { placed, usedArea, remainingFreeRects: freeRects }
 }
 
-// eslint-disable-next-line complexity
+ 
 export function calculatePackedShapeLayout(
   rollW: number,
   rollL: number,

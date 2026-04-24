@@ -82,7 +82,7 @@ export interface SimpleModeLayout {
   preview: SimplePartPreview
 }
 
-// eslint-disable-next-line complexity -- layout computation with many derived values
+ 
 export function computeSimpleModeLayout(input: SimpleModeLayoutInput): SimpleModeLayout {
   const {
     preview,

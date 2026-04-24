@@ -34,7 +34,7 @@ interface SimpleModeProps {
   tagMap?: Map<string, string>
 }
 
-// eslint-disable-next-line max-lines-per-function
+ 
 function SheetSvg({
   sheet,
   layout,

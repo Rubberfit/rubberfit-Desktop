@@ -663,7 +663,7 @@ function pickFallbackCandidate(
   return candidates[0]
 }
 
-// eslint-disable-next-line complexity -- multi-part packing with many derived metrics
+ 
 export function generateMultiPartPreview(
   rollW: number,
   rollL: number,

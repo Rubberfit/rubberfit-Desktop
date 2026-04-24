@@ -97,7 +97,7 @@ export function buildPartPartNfpCache(
   }
 }
 
-// eslint-disable-next-line complexity -- NFP placement algorithm with nested Clipper operations
+ 
 export function packWithRotation(
   originalPoints: ReadonlyArray<Point2D>,
   hullPoints: ReadonlyArray<Point2D>,

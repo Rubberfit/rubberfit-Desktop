@@ -228,7 +228,6 @@ function buildTagMap(basePreview: SimplePartPreview | null, multiSheet: MultiShe
   )
 }
 
- 
 export default function NestingVisualizer({
   defaultRollWidth = 48,
   defaultRollLength = 96,

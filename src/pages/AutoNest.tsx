@@ -52,7 +52,6 @@ function LayoutLabel() {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
- 
 export function AutoNestPage() {
   const [presetParts, setPresetParts] = useState<PartTemplate[]>([])
   const [uploadedParts, setUploadedParts] = useState<PartTemplate[]>([])

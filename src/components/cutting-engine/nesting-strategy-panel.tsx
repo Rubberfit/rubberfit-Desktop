@@ -42,7 +42,6 @@ function getStepNote(
   return map[cur] ?? ""
 }
 
- 
 export default function NestingStrategyPanel({
   scored,
   activeId,

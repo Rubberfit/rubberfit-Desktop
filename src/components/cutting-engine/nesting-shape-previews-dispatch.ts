@@ -663,7 +663,6 @@ function pickFallbackCandidate(
   return candidates[0]
 }
 
- 
 export function generateMultiPartPreview(
   rollW: number,
   rollL: number,

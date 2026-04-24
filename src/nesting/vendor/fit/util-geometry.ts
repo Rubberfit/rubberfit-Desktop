@@ -22,7 +22,6 @@ function bounds(points: Vector[]): BoundingBox {
   return new BoundingBox(new Vector(minX, minY), new Vector(maxX, maxY))
 }
 
- 
 function onSegment(A: Vector, B: Vector, p: Vector): boolean {
   if (approximately(A.x, B.x) && approximately(p.x, A.x)) {
     if (
@@ -136,7 +135,6 @@ function pointDistance(
   return -(pdotnorm - s1dotnorm + ((s1dotnorm - s2dotnorm) * (s1dot - pdot)) / (s1dot - s2dot))
 }
 
- 
 function segmentDistance(
   A: Vector,
   B: Vector,
@@ -308,7 +306,6 @@ function polygonProjectionDistance(A: Part, B: Part, direction: Vector): number 
   return distance
 }
 
- 
 function lineIntersect(
   A: Vector,
   B: Vector,
@@ -340,7 +337,6 @@ function lineIntersect(
   return new Vector(x, y)
 }
 
- 
 function intersect(A: Part, B: Part): boolean {
   const AP = A.points.slice(0)
   const BP = B.points.slice(0)

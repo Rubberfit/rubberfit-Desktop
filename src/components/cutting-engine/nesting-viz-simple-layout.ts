@@ -82,7 +82,6 @@ export interface SimpleModeLayout {
   preview: SimplePartPreview
 }
 
- 
 export function computeSimpleModeLayout(input: SimpleModeLayoutInput): SimpleModeLayout {
   const {
     preview,

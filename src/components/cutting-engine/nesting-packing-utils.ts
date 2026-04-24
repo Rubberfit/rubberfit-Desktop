@@ -507,7 +507,6 @@ export function packIntoFreeRects(
   return { placed, usedArea, remainingFreeRects: freeRects }
 }
 
- 
 export function calculatePackedShapeLayout(
   rollW: number,
   rollL: number,

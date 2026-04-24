@@ -97,7 +97,6 @@ export function buildPartPartNfpCache(
   }
 }
 
- 
 export function packWithRotation(
   originalPoints: ReadonlyArray<Point2D>,
   hullPoints: ReadonlyArray<Point2D>,

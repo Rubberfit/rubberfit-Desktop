@@ -20,7 +20,6 @@ export interface PlaceResult {
   unplaced: Part[]
 }
 
- 
 export function place(
   bins: Bin[],
   parts: Part[],

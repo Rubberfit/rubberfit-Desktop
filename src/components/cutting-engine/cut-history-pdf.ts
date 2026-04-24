@@ -600,7 +600,7 @@ function addFooter(doc: jsPDF): void {
 // to Supabase Storage; that side-effect is gone here — callers are
 // responsible for persisting / saving the returned Blob.
 //
- 
+
 export async function buildCutPdf(
   cutId: string,
   stock: StockConfig,

@@ -34,7 +34,6 @@ interface SimpleModeProps {
   tagMap?: Map<string, string>
 }
 
- 
 function SheetSvg({
   sheet,
   layout,

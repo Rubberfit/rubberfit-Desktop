@@ -119,3 +119,34 @@ export interface PackResult {
   // undefined is a valid, common case.
   wasCancelled?: boolean
 }
+
+/**
+ * Progress frame emitted by the Rust engine during streaming mode.
+ * Ported from rema-portal's `src/application/packing/types.ts`.
+ * Phase-2 desktop: not yet wired to Tauri events, but the type exists
+ * so UI code that listens for progress compiles.
+ */
+export interface PackProgress {
+  iteration: number
+  elapsedMs: number
+  bestPlacedCount: number
+  bestActiveStockDensity: number
+  phase: "explore" | "compress"
+}
+
+/**
+ * Thrown when the caller aborts a pack via `AbortSignal`. Ported
+ * from rema-portal.
+ */
+export class PackingAbortedError extends Error {
+  constructor(message = "Packing operation was aborted") {
+    super(message)
+    this.name = "PackingAbortedError"
+  }
+}
+
+export const PACK_MODE_BUDGETS_MS = {
+  fast: 2_000,
+  balanced: 10_000,
+  thorough: 30_000,
+} as const

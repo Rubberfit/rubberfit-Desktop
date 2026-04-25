@@ -35,7 +35,7 @@ const pageShellVariants = cva("w-full", {
       form: "mx-auto max-w-[760px] px-6 py-6 lg:px-10 lg:py-10",
       // Editor canvas — no container chrome, no max width. The
       // three-column layout inside owns all spacing.
-      workspace: "flex h-full min-h-0 flex-col",
+      workspace: "flex h-full min-h-0 flex-col overflow-x-hidden",
     },
     spacing: {
       default: "space-y-8",

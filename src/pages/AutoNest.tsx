@@ -1,9 +1,9 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { FileUp, FileDown, Ruler, Shapes, X } from "lucide-react"
+import { FileUp, FileDown, Loader2, Ruler, Shapes, X } from "lucide-react"
 import { save } from "@tauri-apps/plugin-dialog"
 import { writeFile } from "@tauri-apps/plugin-fs"
 
@@ -20,6 +20,7 @@ import {
   type StockConfig,
 } from "@/components/cutting-engine/stock-preview-configurator"
 import { CutConfigCard } from "@/components/cutting-engine/cut-config-card"
+import { usePackGate, type PackGateStatus } from "@/hooks/cutting-engine/use-pack-gate"
 import {
   getRequestedSqFt,
   getDefaultCutDirection,
@@ -63,6 +64,7 @@ export function AutoNestPage() {
   // to render vector shapes instead of scraping DOM SVG.
   const [layouts, setLayouts] = useState<LayoutModel[]>([])
   const [isExporting, setIsExporting] = useState(false)
+  const { status: packStatus, requestPack, invalidate } = usePackGate()
 
   const selectedTemplates = useMemo(
     () => [...uploadedParts, ...presetParts],
@@ -216,6 +218,21 @@ export function AutoNestPage() {
           }
         : undefined,
     [selectedTemplate, safeQuantity, cutDirection, customCutRatios]
+  )
+
+  // Pack-gate invalidation. Whenever any input that feeds the packer
+  // changes, drop the gate back to `idle` and clear the prior layout's
+  // metrics so the Export-PDF button doesn't promise a stale layout.
+  // The operator must press Pack again to recompute.
+  useEffect(() => {
+    invalidate()
+    setCutMetrics(null)
+    setLayouts([])
+  }, [selectedTemplates, stock, cutDirection, customCutRatios, invalidate])
+
+  const totalRequestedCuts = useMemo(
+    () => selectedTemplates.reduce((sum, t) => sum + Math.max(1, t.quantity), 0),
+    [selectedTemplates]
   )
 
   // ── Export to PDF via Tauri save dialog ───────────────────────────────────
@@ -402,17 +419,26 @@ export function AutoNestPage() {
             </CardHeader>
 
             <CardContent>
-              <NestingVisualizer
-                defaultRollWidth={stock.width}
-                defaultRollLength={stock.length}
-                defaultCutWidth={selectedTemplate.width ?? selectedTemplate.diameter ?? 24}
-                defaultCutHeight={selectedTemplate.length ?? selectedTemplate.height ?? 24}
-                defaultQty={safeQuantity}
-                onMetricsChange={setCutMetrics}
-                onLayoutChange={setLayouts}
-                simpleParts={nestingSimpleParts}
-                simplePart={nestingSimplePart}
-              />
+              {packStatus === "done" ? (
+                <NestingVisualizer
+                  defaultRollWidth={stock.width}
+                  defaultRollLength={stock.length}
+                  defaultCutWidth={selectedTemplate.width ?? selectedTemplate.diameter ?? 24}
+                  defaultCutHeight={selectedTemplate.length ?? selectedTemplate.height ?? 24}
+                  defaultQty={safeQuantity}
+                  onMetricsChange={setCutMetrics}
+                  onLayoutChange={setLayouts}
+                  simpleParts={nestingSimpleParts}
+                  simplePart={nestingSimplePart}
+                />
+              ) : (
+                <PackPrompt
+                  status={packStatus}
+                  partCount={totalRequestedCuts}
+                  stockLabel={`${stock.width}" × ${stock.length}"`}
+                  onPack={requestPack}
+                />
+              )}
             </CardContent>
           </Card>
         </>
@@ -447,6 +473,47 @@ export function AutoNestPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+    </div>
+  )
+}
+
+interface PackPromptProps {
+  status: PackGateStatus
+  partCount: number
+  stockLabel: string
+  onPack: () => void
+}
+
+// Pre-pack placeholder shown inside the Graph card when the pack
+// gate hasn't been satisfied yet. Replaces the previous behavior of
+// running the packer on every input change. Mirrors the rema-portal
+// "press Pack to render" UX so operators can stage 100+ parts without
+// the packer churning between every edit.
+function PackPrompt({ status, partCount, stockLabel, onPack }: PackPromptProps) {
+  const isPacking = status === "packing"
+  const partsLabel = `${partCount} cut${partCount === 1 ? "" : "s"}`
+
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 px-6 py-12 text-center dark:border-slate-700 dark:bg-slate-800/40">
+      <div className="text-sm font-medium text-foreground">
+        {isPacking ? "Packing…" : "Ready to pack"}
+      </div>
+      <div className="text-xs text-muted-foreground">
+        {partsLabel} · Stock {stockLabel}
+      </div>
+      {isPacking ? (
+        <Loader2 className="h-5 w-5 animate-spin text-blue-500" aria-hidden="true" />
+      ) : (
+        <Button onClick={onPack} disabled={partCount === 0} size="sm">
+          Pack
+        </Button>
+      )}
+      {!isPacking && (
+        <p className="max-w-md text-[11px] text-muted-foreground/80">
+          Layout is computed only when you press Pack. Editing parts, stock, or cut direction
+          resets this prompt so the next pack reflects the latest inputs.
+        </p>
       )}
     </div>
   )

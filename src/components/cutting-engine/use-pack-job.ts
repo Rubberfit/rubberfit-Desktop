@@ -91,10 +91,23 @@ export function usePackJob({
   const runIdRef = useRef(0)
 
   useEffect(() => {
-    if (!enabled) return
-    if (bins.length === 0 || parts.length === 0) return
+    // Drop any prior pack's state whenever we're disabled or have
+    // nothing to pack — without this, AutoNest briefly re-shows the
+    // previous shape's layout on the next pack while the Rust call
+    // is still in flight.
+    if (!enabled || bins.length === 0 || parts.length === 0) {
+      runIdRef.current++ // any in-flight resolve becomes stale
+      setLayouts(null)
+      setIsPacking(false)
+      setPackError(null)
+      return
+    }
 
     const runId = ++runIdRef.current
+    // Clear stale layouts on the LEADING edge so the visualizer
+    // shows the "Packing…" header instead of the previous result
+    // until the new pack resolves.
+    setLayouts(null)
     setIsPacking(true)
     setPackError(null)
 

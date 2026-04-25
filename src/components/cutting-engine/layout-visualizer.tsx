@@ -70,6 +70,11 @@ export default function LayoutVisualizer({
   }, [sheets, onLayoutChange, onMetricsChange])
 
   if (!sheets) {
+    // Three sub-states for the no-layouts branch:
+    //   1. isPacking → centred "Packing…" indicator (Rust call in
+    //      flight; flashing the empty sheet here looks like a regression).
+    //   2. packError → centred error block.
+    //   3. otherwise → empty stock placeholder (truly idle).
     return (
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <SheetHeader
@@ -84,11 +89,17 @@ export default function LayoutVisualizer({
           totals={null}
         />
         <div className="bg-card px-2 py-4 sm:px-4">
-          <EmptySheet
-            sheetWidth={defaultStockWidth}
-            sheetLength={defaultStockLength}
-            patternSeed={patternSeed}
-          />
+          {isPacking ? (
+            <PackingPlaceholder />
+          ) : packError ? (
+            <ErrorPlaceholder message={packError} />
+          ) : (
+            <EmptySheet
+              sheetWidth={defaultStockWidth}
+              sheetLength={defaultStockLength}
+              patternSeed={patternSeed}
+            />
+          )}
         </div>
       </div>
     )
@@ -309,6 +320,27 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div>
       <div className="text-muted-foreground">{label}</div>
       <div className="font-semibold text-foreground">{value}</div>
+    </div>
+  )
+}
+
+// ── In-flight & error placeholders ────────────────────────────────────────
+
+function PackingPlaceholder() {
+  return (
+    <div className="flex h-[440px] flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/40">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700 dark:border-slate-600 dark:border-t-slate-200" />
+      <div className="text-sm font-medium text-foreground">Packing…</div>
+      <div className="text-xs text-muted-foreground">Running rf-layout pack_lbf_lns</div>
+    </div>
+  )
+}
+
+function ErrorPlaceholder({ message }: { message: string }) {
+  return (
+    <div className="flex h-[440px] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-red-300 bg-red-50 px-6 text-center dark:border-red-700 dark:bg-red-900/20">
+      <div className="text-sm font-semibold text-red-700 dark:text-red-300">Pack failed</div>
+      <div className="max-w-md text-xs text-red-700/80 dark:text-red-300/80">{message}</div>
     </div>
   )
 }
@@ -564,16 +596,43 @@ function RegionShape({
 
 function PartShape({ part, layout }: { part: PlacedPart; layout: SheetLayout }) {
   const { surfaceX, surfaceY, scale } = layout
-  // Polygon-aware path: Rust gives us actual placed polygon vertices for
-  // every shape, so prefer the polygon when present. Falls back to a
-  // bounding-box rect for shapes that didn't ship a polygon (rare —
-  // mostly empty-state placeholders).
-  const pxX = surfaceX + part.x * scale
-  const pxY = surfaceY + part.y * scale
-  const pxW = part.width * scale
-  const pxH = part.height * scale
-  const labelX = pxX + pxW / 2
-  const labelY = pxY + pxH / 2
+
+  // Label position. Prefer the polygon bbox centre — `part.x`/`part.y`
+  // come from `rf_layout::Placement` which stores the jagua rotation-
+  // origin translation, NOT the bbox top-left under rotation. Using
+  // them directly puts the tag outside the shape (or outside the
+  // stock, where the parent clipPath swallows it). The polygon is
+  // already in stock-local post-rotation coordinates — the same data
+  // `renderPartGeometry` uses to draw the shape — so its bbox centre
+  // is guaranteed to sit inside the rendered geometry for every
+  // convex/quasi-convex shape AutoNest packs (rect, circle, sector,
+  // trapezoid).
+  let labelX: number
+  let labelY: number
+  let labelDim: number
+  if (part.polygon && part.polygon.length >= 3) {
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const pt of part.polygon) {
+      if (pt.x < minX) minX = pt.x
+      if (pt.y < minY) minY = pt.y
+      if (pt.x > maxX) maxX = pt.x
+      if (pt.y > maxY) maxY = pt.y
+    }
+    labelX = surfaceX + ((minX + maxX) / 2) * scale
+    labelY = surfaceY + ((minY + maxY) / 2) * scale
+    labelDim = Math.min(maxX - minX, maxY - minY) * scale
+  } else {
+    const pxX = surfaceX + part.x * scale
+    const pxY = surfaceY + part.y * scale
+    const pxW = part.width * scale
+    const pxH = part.height * scale
+    labelX = pxX + pxW / 2
+    labelY = pxY + pxH / 2
+    labelDim = Math.min(pxW, pxH)
+  }
 
   return (
     <g>
@@ -583,8 +642,8 @@ function PartShape({ part, layout }: { part: PlacedPart; layout: SheetLayout }) 
         y={labelY}
         textAnchor="middle"
         dominantBaseline="central"
-        className="fill-background"
-        fontSize={Math.max(10, Math.min(18, pxW * 0.18))}
+        fill="#000"
+        fontSize={Math.max(10, Math.min(18, labelDim * 0.32))}
         fontWeight="700"
         style={{ pointerEvents: "none", userSelect: "none" }}
       >

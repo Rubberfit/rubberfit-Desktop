@@ -96,9 +96,18 @@ export function packResultToLayoutModel(
     const scrap = [...scrapPolygons, ...scrapRects]
 
     const usedSqFt = (binResult?.usedArea ?? 0) / 144
-    // reusable area = sum of reusable offcut bboxes, in sq ft
-    const reusableAreaSqIn = offcuts.reduce((s, r) => s + r.width * r.height, 0)
-    const scrapAreaSqIn = (binResult?.wasteArea ?? 0) - reusableAreaSqIn
+    // Reusable area = sum of reusable offcut bboxes, capped at the
+    // bin's actual waste_area. The Rust inscribed-rect extractor in
+    // free_space.rs uses 0.25" grid sampling, so border cells whose
+    // centre sits just inside a polygon contribute their full cell
+    // area to the rect — bounded over-reporting that compounds across
+    // multiple iteratively-extracted rects. Without the cap a
+    // fragmented free space can produce reusable% > 100, which is
+    // visually nonsense (offcuts can't exceed the bin's free area).
+    const wasteAreaSqIn = binResult?.wasteArea ?? 0
+    const rawReusableSqIn = offcuts.reduce((s, r) => s + r.width * r.height, 0)
+    const reusableAreaSqIn = Math.min(rawReusableSqIn, wasteAreaSqIn)
+    const scrapAreaSqIn = Math.max(0, wasteAreaSqIn - reusableAreaSqIn)
     // efficiency in 0..1 → score-card style 0..1 scaled mirror.
     const fabScore = binResult?.efficiency ?? 0
 
@@ -112,7 +121,7 @@ export function packResultToLayoutModel(
       overflowCount: 0,
       usedAreaSqFt: usedSqFt,
       reusableAreaSqFt: reusableAreaSqIn / 144,
-      scrapAreaSqFt: Math.max(0, scrapAreaSqIn / 144),
+      scrapAreaSqFt: scrapAreaSqIn / 144,
       fabScore,
       source: "rust-rf-layout",
     }

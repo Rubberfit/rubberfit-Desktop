@@ -104,18 +104,54 @@ export function AutoNestPage() {
   }, [])
 
   const handleUploadedParts = (parts: ExtractedPart[], stockWidth?: number) => {
-    const uploaded: PartTemplate[] = parts.map((p, i) => ({
-      id: `uploaded-${Date.now()}-${i}`,
-      partType: "rectangle" as const,
-      label: `${p.width}" × ${p.length}"`,
-      summary: p.partNumber ? `Uploaded: ${p.partNumber}` : "Uploaded dimension",
-      quantity: p.quantity,
-      category: "custom" as const,
-      width: p.width,
-      length: p.length,
-      isCustom: true,
-      partNumber: p.partNumber ?? undefined,
-    }))
+    const uploaded: PartTemplate[] = parts.map((p, i) => {
+      const id = `uploaded-${Date.now()}-${i}`
+      const summary = p.partNumber ? `Uploaded: ${p.partNumber}` : "Uploaded dimension"
+      const base = {
+        id,
+        summary,
+        quantity: p.quantity,
+        category: "custom" as const,
+        isCustom: true,
+        partNumber: p.partNumber,
+      }
+      switch (p.shapeType) {
+        case "rectangle":
+          return {
+            ...base,
+            partType: "rectangle",
+            label: `${p.width}" × ${p.length}"`,
+            width: p.width,
+            length: p.length,
+          }
+        case "cylinder":
+          return {
+            ...base,
+            partType: "cylinder",
+            label: `Ø${p.diameter}" × ${p.height}"`,
+            diameter: p.diameter,
+            height: p.height,
+          }
+        case "cone":
+          return {
+            ...base,
+            partType: "cone",
+            label: `Cone r${p.innerRadius}–${p.outerRadius}" @ ${p.arcDegrees}°`,
+            innerRadius: p.innerRadius,
+            outerRadius: p.outerRadius,
+            arcDegrees: p.arcDegrees,
+          }
+        case "trapezoid":
+          return {
+            ...base,
+            partType: "trapezoid",
+            label: `Trap ${p.topWidth}/${p.bottomWidth}" × ${p.height}"`,
+            topWidth: p.topWidth,
+            bottomWidth: p.bottomWidth,
+            height: p.height,
+          }
+      }
+    })
     setUploadedParts((prev) => [...prev, ...uploaded])
     if (stockWidth && stockWidth > 0) {
       setStock((prev) => ({ ...prev, width: stockWidth }))

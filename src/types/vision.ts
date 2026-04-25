@@ -1,16 +1,48 @@
-// Ported verbatim from rema-portal src/application/vision/types.ts.
-// Pure TS types — no runtime deps. Used by cut-list-upload.tsx and
-// upload-review-dialog.tsx to describe the shape of parts extracted
-// from a cut-list image or spreadsheet upload.
+// Ported from rema-portal src/application/vision/types.ts and extended
+// for desktop's multi-shape spreadsheet importer (rectangle, cylinder,
+// cone, trapezoid). Discriminated on `shapeType` so consumers can
+// branch without "is this rectangle data?" checks.
 
-export interface ExtractedPart {
+export type ExtractedShapeType = "rectangle" | "cylinder" | "cone" | "trapezoid"
+
+interface ExtractedShapeBase {
+  shapeType: ExtractedShapeType
+  partNumber?: string
+  quantity: number
+  confidence: number
+}
+
+export interface ExtractedRectangle extends ExtractedShapeBase {
+  shapeType: "rectangle"
   width: number
   length: number
-  quantity: number
-  partNumber?: string
-  confidence: number
-  stockWidth?: number
 }
+
+export interface ExtractedCylinder extends ExtractedShapeBase {
+  shapeType: "cylinder"
+  diameter: number
+  height: number
+}
+
+export interface ExtractedCone extends ExtractedShapeBase {
+  shapeType: "cone"
+  innerRadius: number
+  outerRadius: number
+  arcDegrees: number
+}
+
+export interface ExtractedTrapezoid extends ExtractedShapeBase {
+  shapeType: "trapezoid"
+  topWidth: number
+  bottomWidth: number
+  height: number
+}
+
+export type ExtractedPart =
+  | ExtractedRectangle
+  | ExtractedCylinder
+  | ExtractedCone
+  | ExtractedTrapezoid
 
 export interface VisionExtractionResponse {
   parts: ExtractedPart[]

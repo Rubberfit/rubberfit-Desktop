@@ -136,8 +136,7 @@ export function usePackJob({
         // from the legacy compat shim — treat it as a non-event so
         // the dev overlay stays clean while the Tauri runtime is
         // booting up. Any other error gets surfaced.
-        const isServerOnly =
-          err instanceof Error && err.name === "PackingServerOnlyError"
+        const isServerOnly = err instanceof Error && err.name === "PackingServerOnlyError"
         setPackError(isServerOnly ? null : (err as Error).message)
         setIsPacking(false)
       }
@@ -148,7 +147,7 @@ export function usePackJob({
     return () => {
       // Bump runId on cleanup so any in-flight resolve is treated
       // as stale.
-      runIdRef.current++
+      runIdRef.current = runId + 1
     }
     // requestKey collapses bins/parts/clearance into one stable
     // dependency; the destructured arrays would change identity on

@@ -187,7 +187,10 @@ function detectShapeFromHeaders(headers: string[]): ExtractedShapeType | null {
  * header row. Scan the first ~10 rows for the first one whose cells
  * look like headers for the expected shape.
  */
-function findHeaderRow(rows: string[][], maxScan: number = 10): {
+function findHeaderRow(
+  rows: string[][],
+  maxScan: number = 10
+): {
   headerIndex: number
   shape: ExtractedShapeType
 } | null {
@@ -348,7 +351,11 @@ function parseTrapezoidRows(rows: string[][], headerIndex: number): ExtractedTra
   return out
 }
 
-function parseSheetRows(rows: string[][], shape: ExtractedShapeType, headerIndex: number): ExtractedPart[] {
+function parseSheetRows(
+  rows: string[][],
+  shape: ExtractedShapeType,
+  headerIndex: number
+): ExtractedPart[] {
   switch (shape) {
     case "rectangle":
       return parseRectangleRows(rows, headerIndex)

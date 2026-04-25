@@ -83,8 +83,8 @@ export default function LayoutVisualizer({
             isPacking
               ? "Packing…"
               : packError
-              ? `Pack failed: ${packError}`
-              : "No parts placed yet."
+                ? `Pack failed: ${packError}`
+                : "No parts placed yet."
           }
           totals={null}
         />
@@ -198,8 +198,7 @@ function buildMetrics(sheets: LayoutModel[]): SimpleCutMetrics {
 function summaryLine(sheets: LayoutModel[]): string {
   const t = buildTotals(sheets)
   const sheetWord = sheets.length === 1 ? "sheet" : "sheets"
-  const overflowSuffix =
-    t.partsOverflow > 0 ? `, ${t.partsOverflow} overflow` : ""
+  const overflowSuffix = t.partsOverflow > 0 ? `, ${t.partsOverflow} overflow` : ""
   return `${sheets.length} ${sheetWord}, ${t.partsPlaced} parts placed${overflowSuffix}`
 }
 
@@ -218,7 +217,8 @@ function SheetHeader({
   packError?: string | null
   sheetCount?: number
 }) {
-  const reusablePct = totals && totals.stockSqFt > 0 ? (totals.reusableSqFt / totals.stockSqFt) * 100 : 0
+  const reusablePct =
+    totals && totals.stockSqFt > 0 ? (totals.reusableSqFt / totals.stockSqFt) * 100 : 0
   const scrapPct = totals && totals.stockSqFt > 0 ? (totals.scrapSqFt / totals.stockSqFt) * 100 : 0
 
   return (
@@ -421,7 +421,12 @@ function SheetSvg({
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const svgRef = useRef<SVGSVGElement>(null)
-  const dragRef = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null)
+  const dragRef = useRef<{
+    startX: number
+    startY: number
+    startPanX: number
+    startPanY: number
+  } | null>(null)
   const zoomRef = useRef(zoom)
   const panRef = useRef(pan)
   useEffect(() => {
@@ -494,7 +499,14 @@ function SheetSvg({
 
   return (
     <div className="group relative">
-      <ZoomControls zoom={zoom} onZoom={setZoom} onReset={() => { setZoom(1); setPan({ x: 0, y: 0 }) }} />
+      <ZoomControls
+        zoom={zoom}
+        onZoom={setZoom}
+        onReset={() => {
+          setZoom(1)
+          setPan({ x: 0, y: 0 })
+        }}
+      />
       {isMulti && (
         <div className="mb-1 text-center text-xs font-medium text-muted-foreground">
           Sheet {sheetIndex + 1} of {totalSheets}
@@ -763,7 +775,7 @@ function SheetTitle({ width, length }: { width: number; length: number }) {
         className="fill-muted-foreground"
         fontSize="12"
       >
-        {`Typical ${formatInches(width)}\" × ${formatInches(length)}\" stock sheet`}
+        {`Typical ${formatInches(width)}" × ${formatInches(length)}" stock sheet`}
       </text>
     </>
   )
@@ -792,7 +804,7 @@ function DimensionLabels({
         fontSize="13"
         fontWeight="500"
       >
-        {`${formatInches(sheetWidth)}\"`}
+        {`${formatInches(sheetWidth)}"`}
       </text>
       <text
         x={lLabelX}
@@ -803,7 +815,7 @@ function DimensionLabels({
         fontWeight="500"
         transform={`rotate(90 ${lLabelX} ${layout.surfaceY + layout.surfacePxH / 2})`}
       >
-        {`${formatInches(sheetLength)}\"`}
+        {`${formatInches(sheetLength)}"`}
       </text>
     </>
   )

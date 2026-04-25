@@ -169,8 +169,7 @@ interface SectionProps<T extends ExtractedPart> {
   removeRow: (index: number) => void
 }
 
-const inputCls =
-  "w-full rounded border border-border bg-transparent px-1.5 py-1 text-sm"
+const inputCls = "w-full rounded border border-border bg-transparent px-1.5 py-1 text-sm"
 
 function PartNumberCell({
   value,
@@ -252,9 +251,7 @@ function RectangleTable({
           <TableRow key={index}>
             <PartNumberCell
               value={part.partNumber}
-              onChange={(v) =>
-                updateRow(index, (p) => ({ ...p, partNumber: v }))
-              }
+              onChange={(v) => updateRow(index, (p) => ({ ...p, partNumber: v }))}
             />
             <NumberCell
               value={part.width}
@@ -309,17 +306,13 @@ function CylinderTable({
           <TableRow key={index}>
             <PartNumberCell
               value={part.partNumber}
-              onChange={(v) =>
-                updateRow(index, (p) => ({ ...p, partNumber: v }))
-              }
+              onChange={(v) => updateRow(index, (p) => ({ ...p, partNumber: v }))}
             />
             <NumberCell
               value={part.diameter}
               onChange={(v) =>
                 updateRow(index, (p) =>
-                  p.shapeType === "cylinder"
-                    ? { ...p, diameter: parsePositive(v, p.diameter) }
-                    : p
+                  p.shapeType === "cylinder" ? { ...p, diameter: parsePositive(v, p.diameter) } : p
                 )
               }
             />
@@ -327,9 +320,7 @@ function CylinderTable({
               value={part.height}
               onChange={(v) =>
                 updateRow(index, (p) =>
-                  p.shapeType === "cylinder"
-                    ? { ...p, height: parsePositive(v, p.height) }
-                    : p
+                  p.shapeType === "cylinder" ? { ...p, height: parsePositive(v, p.height) } : p
                 )
               }
             />
@@ -371,9 +362,7 @@ function ConeTable({
           <TableRow key={index}>
             <PartNumberCell
               value={part.partNumber}
-              onChange={(v) =>
-                updateRow(index, (p) => ({ ...p, partNumber: v }))
-              }
+              onChange={(v) => updateRow(index, (p) => ({ ...p, partNumber: v }))}
             />
             <NumberCell
               value={part.innerRadius}
@@ -399,9 +388,7 @@ function ConeTable({
               value={part.arcDegrees}
               onChange={(v) =>
                 updateRow(index, (p) =>
-                  p.shapeType === "cone"
-                    ? { ...p, arcDegrees: parsePositive(v, p.arcDegrees) }
-                    : p
+                  p.shapeType === "cone" ? { ...p, arcDegrees: parsePositive(v, p.arcDegrees) } : p
                 )
               }
               step="1"
@@ -444,17 +431,13 @@ function TrapezoidTable({
           <TableRow key={index}>
             <PartNumberCell
               value={part.partNumber}
-              onChange={(v) =>
-                updateRow(index, (p) => ({ ...p, partNumber: v }))
-              }
+              onChange={(v) => updateRow(index, (p) => ({ ...p, partNumber: v }))}
             />
             <NumberCell
               value={part.topWidth}
               onChange={(v) =>
                 updateRow(index, (p) =>
-                  p.shapeType === "trapezoid"
-                    ? { ...p, topWidth: parsePositive(v, p.topWidth) }
-                    : p
+                  p.shapeType === "trapezoid" ? { ...p, topWidth: parsePositive(v, p.topWidth) } : p
                 )
               }
             />
@@ -472,9 +455,7 @@ function TrapezoidTable({
               value={part.height}
               onChange={(v) =>
                 updateRow(index, (p) =>
-                  p.shapeType === "trapezoid"
-                    ? { ...p, height: parsePositive(v, p.height) }
-                    : p
+                  p.shapeType === "trapezoid" ? { ...p, height: parsePositive(v, p.height) } : p
                 )
               }
             />

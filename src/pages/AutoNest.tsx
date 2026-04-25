@@ -322,7 +322,7 @@ export function AutoNestPage() {
 
   // PDF export consumes layouts. usePackJob owns them now; mirror the
   // hook output into a non-null array so downstream code stays simple.
-  const layouts: LayoutModel[] = packLayouts ?? []
+  const layouts = useMemo<LayoutModel[]>(() => packLayouts ?? [], [packLayouts])
 
   // Pack-gate invalidation. Whenever any input that feeds the packer
   // changes, drop the gate back to `idle` and clear the prior layout's
@@ -559,10 +559,7 @@ export function AutoNestPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <LayoutVisualizer
-              defaultStockWidth={stock.width}
-              defaultStockLength={stock.length}
-            />
+            <LayoutVisualizer defaultStockWidth={stock.width} defaultStockLength={stock.length} />
             <div className="mt-4 flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600 text-xs dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
               <Shapes className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
               <span>
@@ -609,8 +606,8 @@ function PackPrompt({ status, partCount, stockLabel, onPack }: PackPromptProps) 
       )}
       {!isPacking && (
         <p className="max-w-md text-[11px] text-muted-foreground/80">
-          Layout is computed only when you press Pack. Editing parts, stock, or cut direction
-          resets this prompt so the next pack reflects the latest inputs.
+          Layout is computed only when you press Pack. Editing parts, stock, or cut direction resets
+          this prompt so the next pack reflects the latest inputs.
         </p>
       )}
     </div>

@@ -9,12 +9,7 @@
 //
 // Issue #12 — Phase B3 of the AutoNest TS→Rust migration.
 
-import type {
-  LayoutModel,
-  LayoutRegion,
-  PlacedPart,
-  RenderShape,
-} from "./layout-model"
+import type { LayoutModel, LayoutRegion, PlacedPart, RenderShape } from "./layout-model"
 import type { PartTemplate } from "./preset-template-data"
 import type {
   BinResult,
@@ -76,9 +71,7 @@ export function packResultToLayoutModel(
     )
 
     const offcuts: LayoutRegion[] =
-      binResult?.offcuts
-        .filter((o) => o.kind === "reusable")
-        .map(offcutToRegion) ?? []
+      binResult?.offcuts.filter((o) => o.kind === "reusable").map(offcutToRegion) ?? []
 
     // Scrap is everything else in the waste: classified scrap rects
     // from the inscribed-rect pass + the raw `freeRegions` polygons
@@ -88,9 +81,7 @@ export function packResultToLayoutModel(
     // rects paint on top, masking the scrap underneath where they
     // overlap.
     const scrapRects: LayoutRegion[] =
-      binResult?.offcuts
-        .filter((o) => o.kind === "scrap")
-        .map(offcutToRegion) ?? []
+      binResult?.offcuts.filter((o) => o.kind === "scrap").map(offcutToRegion) ?? []
     const scrapPolygons: LayoutRegion[] =
       binResult?.freeRegions.map((poly) => polygonToRegion(poly)) ?? []
     const scrap = [...scrapPolygons, ...scrapRects]
@@ -141,13 +132,12 @@ function placementToPlacedPart(
   const template = templatesByShapeId.get(p.shapeId)
   const renderShape: RenderShape = template?.renderShape
     ? template.renderShape
-    : PART_TYPE_TO_RENDER_SHAPE[template?.partType ?? "rect"] ?? "rect"
+    : (PART_TYPE_TO_RENDER_SHAPE[template?.partType ?? "rect"] ?? "rect")
 
   // Prefer the Placement's echoed tag (Rust round-trip), fall back
   // to the AutoNest tag map keyed by shapeId, then to a generated
   // letter from the index. Tag is a UI-only concern; never thrown.
-  const tag =
-    p.tag ?? tagByShapeId?.get(p.shapeId) ?? defaultLabelForIndex(index)
+  const tag = p.tag ?? tagByShapeId?.get(p.shapeId) ?? defaultLabelForIndex(index)
 
   return {
     id: `placement:${p.shapeId}:${p.instanceIndex}`,

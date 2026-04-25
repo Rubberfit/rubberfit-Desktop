@@ -1,12 +1,12 @@
 // engine/crates/rf-layout/src/application/crossbin.rs
 //
-// Phase 3 follow-up — Codex's Option E: cross-bin move-out.
+// Phase 3 follow-up â€” Codex's Option E: cross-bin move-out.
 //
 // After the sequential LBF+LNS+polish pipeline produces a multi-bin
 // layout, this operator tries to reduce the Fab `Nesting` component
 // by moving ONE item at a time between bins. Nesting = totalUsed /
 // totalOccupiedArea; the only way to improve it at fixed totalUsed
-// is to reduce `totalOccupiedArea` = Σ(bin.width × occupied_height).
+// is to reduce `totalOccupiedArea` = Î£(bin.width Ã— occupied_height).
 //
 // The move-out idea: if roll-1 has an item protruding at its top
 // (i.e., removing it drops roll-1's occupied_height), AND that item
@@ -20,7 +20,7 @@
 //
 // On the production 37-part fixture this operator may be a no-op
 // because the items that CAN reduce roll-1's max_y don't fit into
-// roll-2 without bumping roll-2's max_y more. We still ship it —
+// roll-2 without bumping roll-2's max_y more. We still ship it â€”
 // (a) other fixtures may benefit, (b) it's a clean safety net that
 // never regresses (we accept moves only on strict improvement).
 
@@ -33,13 +33,13 @@ use std::collections::HashMap;
 /// Keeps us from churning on near-ties.
 const MIN_IMPROVEMENT_SQIN: f64 = 1.0;
 
-/// Try to move one item between bins to reduce Σ(bin.width ×
+/// Try to move one item between bins to reduce Î£(bin.width Ã—
 /// occupied_height). Iterates up to `max_iterations` times; each
 /// iteration applies the single best single-item move across all
 /// (src, dst) pairs, or stops if no improvement is available.
 ///
 /// Preserves placement count, bin assignment count, and the Placement
-/// pool itself — only bin_id and polygon positions change for the
+/// pool itself â€” only bin_id and polygon positions change for the
 /// moved item. Runs polish on affected bins after each move so the
 /// target bin compacts the newly-added item against its existing
 /// layout.
@@ -132,7 +132,7 @@ fn find_best_move(
     best
 }
 
-/// Compute the hypothetical Σ(bin.width × occ_height) if we moved
+/// Compute the hypothetical Î£(bin.width Ã— occ_height) if we moved
 /// `placement_idx` from its current bin to `dst_bin_idx` and re-
 /// polished both bins. Returns `None` if the move is infeasible
 /// (item bbox doesn't fit inside dst_bin's raw dimensions).
@@ -200,7 +200,7 @@ fn simulate_move_occupied(
         } else if bi == dst_bin_idx {
             max_y_of(&dst_placements)
         } else {
-            // Other bin — pull its existing occupied height from result.
+            // Other bin â€” pull its existing occupied height from result.
             result
                 .per_bin
                 .iter()
@@ -251,7 +251,7 @@ fn apply_move(
     let dst_polished =
         polish_placements(&dst_placements, dst_bin.width, dst_bin.height, polish_cfg);
 
-    // Rebuild the placements list (order doesn't matter — consumers
+    // Rebuild the placements list (order doesn't matter â€” consumers
     // identify placements by bin_id and shape_id).
     result.placements = src_polished
         .into_iter()
@@ -417,6 +417,7 @@ mod tests {
             width: w,
             height: h,
             difficulty: None,
+            tag: None,
         }
     }
 
@@ -443,6 +444,8 @@ mod tests {
                 0.0
             },
             scrap_ratio: 1.0 - (used / (used + waste)).max(0.0),
+            free_regions: Vec::new(),
+            offcuts: Vec::new(),
         }
     }
 
@@ -494,14 +497,14 @@ mod tests {
         let bins = vec![test_bin("A", 100.0, 100.0), test_bin("B", 100.0, 100.0)];
         let out = try_cross_bin_moveout(result, &bins, 0.0, 3);
 
-        // SOMETHING moved from A to B — don't care which specific item
+        // SOMETHING moved from A to B â€” don't care which specific item
         // (the operator is free to pick any shape whose move reduces
         // total occupied area; in this fixture several items are
         // equally beneficial once polish is applied).
         let b_count = out.placements.iter().filter(|p| p.bin_id == "B").count();
         assert!(b_count >= 1, "at least one item should have moved to bin B");
 
-        // Bin A occupied height should drop substantially from 100 —
+        // Bin A occupied height should drop substantially from 100 â€”
         // in this fixture polish compacts the remaining items so A ends
         // up well under 50 regardless of which single item was moved.
         let a_occ = out
@@ -521,7 +524,7 @@ mod tests {
     fn rejects_move_that_worsens_total() {
         // Two bins evenly balanced. Moving any item from either bin
         // to the other would either leave total occupied unchanged
-        // or make it worse — the operator must pass everything
+        // or make it worse â€” the operator must pass everything
         // through unchanged.
         let placements = vec![
             rect_placement("a", "A", 0.0, 0.0, 50.0, 50.0),

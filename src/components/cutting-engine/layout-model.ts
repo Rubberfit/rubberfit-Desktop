@@ -83,7 +83,15 @@ export interface LayoutModel {
   scrapAreaSqFt: number
   fabScore: number
 
-  source: "ts-nfp"
+  /**
+   * Origin of this layout model.
+   * - `"ts-nfp"`: legacy TypeScript NFP greedy placer (being retired
+   *   in issue #12).
+   * - `"rust-rf-layout"`: Rust `pack_lbf_lns` pipeline via Tauri
+   *   `pack_job` invoke. Free-space polygons + classified offcuts
+   *   come back from `BinResult.freeRegions` / `BinResult.offcuts`.
+   */
+  source: "ts-nfp" | "rust-rf-layout"
 }
 
 // ── Normaliser ───────────────────────────────────────────────────────────────

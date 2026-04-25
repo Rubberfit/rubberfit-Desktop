@@ -59,6 +59,15 @@ pub struct Part {
     pub grain_axis: Option<GrainAxis>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub difficulty: Option<f64>,
+    /// Caller-owned opaque label echoed verbatim onto every
+    /// `Placement` produced for this shape. Rubberfit-Desktop's
+    /// AutoNest UI uses it to tag placements with a part number
+    /// ("G2") or a generated letter ("A", "B", "C…"). Rust never
+    /// inspects, mutates, or generates the value — it is held by
+    /// reference and round-tripped to keep the TypeScript layer in
+    /// sole ownership of the labelling scheme.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tag: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

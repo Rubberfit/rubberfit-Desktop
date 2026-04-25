@@ -53,8 +53,8 @@ pub fn pack_with_options(
         let mut occupied_height = 0.0_f64;
 
         for p in seed.placements {
-            // Global `instance_index` renumbering per shape — stays in
-            // pack.rs post-processing per Codex sign-off (§8). The
+            // Global `instance_index` renumbering per shape â€” stays in
+            // pack.rs post-processing per Codex sign-off (Â§8). The
             // search layer emits bin-local indices; this makes them
             // globally unique across the whole PackResult.
             let counter = index_counters.entry(p.shape_id.clone()).or_insert(0);
@@ -84,6 +84,7 @@ pub fn pack_with_options(
                 width: p.width,
                 height: p.height,
                 difficulty: None,
+                tag: None,
             });
         }
 
@@ -111,6 +112,8 @@ pub fn pack_with_options(
             },
             efficiency,
             scrap_ratio: 1.0 - efficiency,
+            free_regions: Vec::new(),
+            offcuts: Vec::new(),
         });
 
         let _ = seed.overflow;
@@ -187,6 +190,7 @@ mod tests {
             allow_rotation: true,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
@@ -331,17 +335,17 @@ mod tests {
 
     #[test]
     fn pack_uses_ffd_routing() {
-        // Task 10 regression: input order is small→small→big across 2
+        // Task 10 regression: input order is smallâ†’smallâ†’big across 2
         // bins where naive per-bin spillover overflows but FFD
         // (area-desc sort) fits everything.
         //
-        // Bins: A=20×20, B=20×15. Items in request order:
-        //   small1 = 10×10, small2 = 10×5, big = 20×20.
+        // Bins: A=20Ã—20, B=20Ã—15. Items in request order:
+        //   small1 = 10Ã—10, small2 = 10Ã—5, big = 20Ã—20.
         //
         // Naive (pre-Task-10): big tries bin A after smalls, 10+5+20=35>20
-        // fails; big tries bin B, 20>15 fails → overflow=1.
-        // FFD: big first → bin A. smalls next → bin B (each fits).
-        // → overflow_count == 0.
+        // fails; big tries bin B, 20>15 fails â†’ overflow=1.
+        // FFD: big first â†’ bin A. smalls next â†’ bin B (each fits).
+        // â†’ overflow_count == 0.
         let req = PackRequest {
             bins: vec![bin("A", 20.0, 20.0), bin("B", 20.0, 15.0)],
             clearance: 0.0,

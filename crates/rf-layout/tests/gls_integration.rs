@@ -1,11 +1,11 @@
-// engine/crates/rf-layout/tests/gls_integration.rs
+﻿// engine/crates/rf-layout/tests/gls_integration.rs
 //
-// S2.5a Task 9 integration tests — property + timing coverage for the
+// S2.5a Task 9 integration tests â€” property + timing coverage for the
 // explore->compress pipeline wired in Task 8.
 //
 // Design per Gemini + Codex sign-off:
 //   - Four properties over a handcrafted 10-fixture table (not proptest
-//     — the budget isn't justified for this scope; single-bin GLS is
+//     â€” the budget isn't justified for this scope; single-bin GLS is
 //     deterministic under fixed seed so a curated table is enough).
 //   - Dropped the parent plan's "density >= warm_start seed density"
 //     property: Codex proved on Task 8 that Separator preserves
@@ -32,7 +32,7 @@
 //
 // The timing test is separate from the property table: run a small
 // fixture with a 500ms budget and assert the call returns in under 10s
-// ceiling (same rationale as `search::tests::respects_time_budget` —
+// ceiling (same rationale as `search::tests::respects_time_budget` â€”
 // BasicTerminator is only polled at outer strike loop, so the ceiling
 // accounts for a single strike cycle).
 
@@ -61,6 +61,7 @@ fn rect_part(id: &str, qty: u32, w: f64, h: f64) -> Part {
         allow_rotation: false,
         grain_axis: None,
         difficulty: None,
+        tag: None,
     }
 }
 
@@ -266,7 +267,7 @@ fn property_all_vertices_within_bin() {
     // guarantee only holds for fixtures GLS resolved to feasibility
     // (overflow==0 after the pipeline completes AND no pairwise bbox
     // overlap). For those, the vertex excursion is bounded by f32
-    // precision at jagua's f32 internal arithmetic — use a 0.5 unit
+    // precision at jagua's f32 internal arithmetic â€” use a 0.5 unit
     // tolerance to catch real transform regressions (the Task 8 replay
     // bug would have produced excursions on the order of item-centroid
     // magnitude, not millimetres).
@@ -302,7 +303,7 @@ fn property_all_vertices_within_bin() {
             for (vi, v) in p.polygon.iter().enumerate() {
                 assert!(
                     v.x >= -EPS && v.x <= bw + EPS,
-                    "{}: placement {} vertex {} x={} out of bin [0, {}] — possible transform regression",
+                    "{}: placement {} vertex {} x={} out of bin [0, {}] â€” possible transform regression",
                     f.name,
                     idx,
                     vi,
@@ -311,7 +312,7 @@ fn property_all_vertices_within_bin() {
                 );
                 assert!(
                     v.y >= -EPS && v.y <= bh + EPS,
-                    "{}: placement {} vertex {} y={} out of bin [0, {}] — possible transform regression",
+                    "{}: placement {} vertex {} y={} out of bin [0, {}] â€” possible transform regression",
                     f.name,
                     idx,
                     vi,
@@ -375,7 +376,7 @@ fn timing_fast_mode_under_ceiling() {
     // defaults can run several seconds on small CPU/GPU-cold runs.
     // The honest assertion: across the fixture table with a 500ms
     // budget each, total runtime stays under a 30s ceiling. That's
-    // ~3s average per fixture — realistic for the current mitigation
+    // ~3s average per fixture â€” realistic for the current mitigation
     // mix and catches genuine regressions.
     let start = Instant::now();
     let req_base = || PackRequest {

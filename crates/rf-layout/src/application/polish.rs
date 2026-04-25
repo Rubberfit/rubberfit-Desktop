@@ -399,6 +399,7 @@ mod tests {
             width: w,
             height: h,
             difficulty: None,
+            tag: None,
         }
     }
 

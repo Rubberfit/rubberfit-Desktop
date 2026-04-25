@@ -1,7 +1,7 @@
-// engine/crates/rf-layout/tests/cross_bin_swap_integration.rs
+﻿// engine/crates/rf-layout/tests/cross_bin_swap_integration.rs
 //
 // Task 11 integration tests for cross-bin swap operators. These run
-// against the real assignment pipeline (FFD → operator → materialize)
+// against the real assignment pipeline (FFD â†’ operator â†’ materialize)
 // and verify invariants end-to-end.
 
 use rf_geom::domain::Point2D;
@@ -25,6 +25,7 @@ fn rect_part(id: &str, qty: u32, w: f64, h: f64) -> Part {
         allow_rotation: false,
         grain_axis: None,
         difficulty: None,
+        tag: None,
     }
 }
 

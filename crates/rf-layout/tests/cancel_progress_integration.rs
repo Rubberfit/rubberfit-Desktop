@@ -1,4 +1,4 @@
-// engine/crates/rf-layout/tests/cancel_progress_integration.rs
+﻿// engine/crates/rf-layout/tests/cancel_progress_integration.rs
 //
 // Task 14 integration tests:
 //   - Pre-set cancel short-circuits immediately.
@@ -31,6 +31,7 @@ fn rect_part(id: &str, qty: u32, w: f64, h: f64) -> Part {
         allow_rotation: false,
         grain_axis: None,
         difficulty: None,
+        tag: None,
     }
 }
 
@@ -149,7 +150,7 @@ fn progress_callback_fires_baseline_frame() {
 
 #[test]
 fn no_cancel_token_completes_normally() {
-    // Equivalent to today's `pack()` — regression guard that
+    // Equivalent to today's `pack()` â€” regression guard that
     // SearchOptions::default() preserves existing behavior.
     let req = PackRequest {
         bins: vec![bin("A", 48.0, 96.0)],

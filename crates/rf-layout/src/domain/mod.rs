@@ -11,4 +11,4 @@ pub use request::{
     UnitSystem,
 };
 pub use request::{BALANCED_MS, FAST_MS, THOROUGH_MS};
-pub use result::{BinResult, PackResult, Placement};
+pub use result::{BinResult, ClassifiedOffcut, OffcutKind, PackResult, Placement};

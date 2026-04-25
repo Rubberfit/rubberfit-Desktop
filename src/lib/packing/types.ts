@@ -50,6 +50,15 @@ export interface Part {
   allowRotation: boolean
   grainAxis?: GrainAxis | null
   difficulty?: number | null
+  /**
+   * Caller-owned opaque label echoed verbatim onto every `Placement`
+   * the Rust pipeline produces for this shape. AutoNest tags
+   * placements with the part number ("G2") or a generated letter
+   * ("A", "B", "C…"). Rust never inspects, mutates, or fabricates
+   * the value — it round-trips a TypeScript-owned string per the
+   * architectural decision recorded in the Phase A migration plan.
+   */
+  tag?: string | null
 }
 
 export interface OperatorProfile {
@@ -89,6 +98,34 @@ export interface Placement {
   width: number
   height: number
   difficulty?: number | null
+  /**
+   * Echo of the source `Part.tag` for this `shapeId`. The Rust
+   * `application::strategy::run_with_tag_echo` post-processor stamps
+   * every produced placement with the source tag. Untagged parts
+   * yield untagged placements (`undefined`).
+   */
+  tag?: string | null
+}
+
+/**
+ * Whether an offcut rectangle meets the reusable-stock thresholds.
+ * Mirrors `rf_layout::domain::result::OffcutKind`.
+ */
+export type OffcutKind = "reusable" | "scrap"
+
+/**
+ * One axis-aligned offcut rectangle extracted from a `BinResult`'s
+ * `freeRegions` polygons via the Rust inscribed-rect algorithm,
+ * classified against the reusable-stock thresholds. AutoNest paints
+ * `reusable` in amber and `scrap` in red.
+ */
+export interface ClassifiedOffcut {
+  binId: string
+  x: number
+  y: number
+  width: number
+  height: number
+  kind: OffcutKind
 }
 
 export interface BinResult {
@@ -101,6 +138,21 @@ export interface BinResult {
   efficiency: number
   // Invariant: scrapRatio == 1.0 - efficiency (within f64 epsilon).
   scrapRatio: number
+  /**
+   * Boolean-difference output: bin polygon minus the union of placed
+   * polygons in this bin. CCW-wound, in bin-local coords. AutoNest
+   * paints these as scrap polygons for irregular waste regions
+   * (cone/trapezoid mixes). Each polygon is a `Point2D[]` — the Rust
+   * `Polygon` type serializes transparently as a flat array of
+   * `{x, y}`. May be empty when the post-pack extractor hasn't run.
+   */
+  freeRegions: Point2D[][]
+  /**
+   * Axis-aligned reusable/scrap rectangles inscribed inside
+   * `freeRegions`. May be empty when the post-pack extractor hasn't
+   * run.
+   */
+  offcuts: ClassifiedOffcut[]
 }
 
 export interface PackResult {

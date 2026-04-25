@@ -1,7 +1,7 @@
-// engine/crates/rf-layout/tests/orchestrator_integration.rs
+﻿// engine/crates/rf-layout/tests/orchestrator_integration.rs
 //
-// Task 12 integration tests — optimize_multi wired through pack()
-// exercises the full FFD → operators → per-bin GLS pipeline.
+// Task 12 integration tests â€” optimize_multi wired through pack()
+// exercises the full FFD â†’ operators â†’ per-bin GLS pipeline.
 
 use rf_geom::domain::Point2D;
 use rf_layout::application::pack::pack;
@@ -21,6 +21,7 @@ fn rect_part(id: &str, qty: u32, w: f64, h: f64) -> Part {
         allow_rotation: false,
         grain_axis: None,
         difficulty: None,
+        tag: None,
     }
 }
 
@@ -108,7 +109,7 @@ fn pack_multi_bin_large_fixture() {
 #[test]
 fn pack_single_bin_parity_holds() {
     // Single-bin fast path must produce results equivalent to
-    // Task 9's passing gls_integration tests — bin size + item set
+    // Task 9's passing gls_integration tests â€” bin size + item set
     // matches `three_rects_stack` fixture.
     let req = PackRequest {
         bins: vec![bin("b", 48.0, 96.0)],

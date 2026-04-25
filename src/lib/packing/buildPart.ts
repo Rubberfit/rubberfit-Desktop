@@ -12,6 +12,12 @@ export interface BuildPartInput {
   grainAxis?: "width" | "length" | "none"
   difficulty?: number
   polygon?: Point2D[]
+  /**
+   * Opaque label echoed onto every produced `Placement.tag`. AutoNest
+   * uses the part number ("G2") or a generated letter ("A", "B", …).
+   * Rust round-trips this verbatim — see `Part.tag` in `./types`.
+   */
+  tag?: string
 }
 
 export function buildPart(input: BuildPartInput): Part {
@@ -33,6 +39,7 @@ export function buildPart(input: BuildPartInput): Part {
     allowRotation: input.allowRotation,
     grainAxis: input.grainAxis,
     difficulty: input.difficulty,
+    tag: input.tag,
   }
 }
 

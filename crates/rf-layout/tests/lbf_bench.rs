@@ -1,4 +1,4 @@
-// engine/crates/rf-layout/tests/lbf_bench.rs
+﻿// engine/crates/rf-layout/tests/lbf_bench.rs
 //
 // Empirical bench of jagua-rs's LBF reference BPP optimizer on REMA's
 // 37-part production fixture. Polygon-aware (handles irregular shapes
@@ -89,6 +89,7 @@ fn production_items(allow_rotation: bool) -> Vec<Part> {
             allow_rotation,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         })
         .collect()
 }
@@ -104,7 +105,7 @@ fn run_lbf(
         to_jagua_instance(std::slice::from_ref(bin), items, 0.0).expect("to_jagua_instance");
 
     // Keep poly_simpl_tolerance small so we don't unintentionally degrade rect
-    // geometry — our fixture is orthogonal rectangles with exact coordinates.
+    // geometry â€” our fixture is orthogonal rectangles with exact coordinates.
     let config = LBFConfig {
         n_samples,
         ls_frac,
@@ -179,7 +180,7 @@ fn lbf_vs_bssf_on_production_fixture_no_rotation() {
 #[test]
 #[ignore]
 fn pack_lbf_lns_vs_pack_lbf_on_production_fixture() {
-    // Phase 2 bench — does the density-changing LNS close the 32 → 33+
+    // Phase 2 bench â€” does the density-changing LNS close the 32 â†’ 33+
     // gap on single bin?
     let bin = production_bin();
     let items = production_items(true);
@@ -254,7 +255,7 @@ fn pack_lbf_lns_vs_pack_lbf_on_production_fixture() {
 #[test]
 #[ignore]
 fn pack_lbf_two_bin_fab_score_comparison() {
-    // 2-bin fixture: same 37 parts on 2× 78×396 rolls. Measures whether
+    // 2-bin fixture: same 37 parts on 2Ã— 78Ã—396 rolls. Measures whether
     // pack_lbf already beats legacy on the Fab Score gap (current Rust
     // is 46 vs legacy 52 = -6 points, with 0.01" tail remnant vs 125"
     // legacy).
@@ -282,7 +283,7 @@ fn pack_lbf_two_bin_fab_score_comparison() {
     };
 
     println!(
-        "\n[2-bin bench] {} unique parts, {} total copies, 2× 78×396 rolls, rotation=true",
+        "\n[2-bin bench] {} unique parts, {} total copies, 2Ã— 78Ã—396 rolls, rotation=true",
         request.items.len(),
         total_copies
     );
@@ -333,7 +334,7 @@ fn bin_packing_auto_vs_bssf_on_production_fixture() {
     // the single-bin warm-start. Auto is already wired to bin-packing
     // crate's full MaxRects + Skyline + Guillotine + BFDH + Multistart +
     // RotationSearch sweep, but it's never been called on the production
-    // single-bin path — only from Tier 6 cross-bin-swap receiver repack.
+    // single-bin path â€” only from Tier 6 cross-bin-swap receiver repack.
     //
     // If Auto lifts us meaningfully above BSSF's 13/37, it's a simpler
     // intervention than adopting LBF (no new crate dep, no new engine).
@@ -415,14 +416,14 @@ fn pack_lbf_vs_pack_on_production_fixture() {
     let lbf_result = pack_lbf(request.clone()).unwrap();
     let lbf_elapsed = lbf_start.elapsed();
     println!(
-        "pack_lbf (10×)  : placed={}/{}, density={:.2}%, elapsed={:?}",
+        "pack_lbf (10Ã—)  : placed={}/{}, density={:.2}%, elapsed={:?}",
         lbf_result.placed_count,
         total_copies,
         lbf_result.overall_density * 100.0,
         lbf_elapsed
     );
 
-    // pack_lbf with 20 seeds — matches the standalone multistart bench.
+    // pack_lbf with 20 seeds â€” matches the standalone multistart bench.
     let cfg20 = PackLbfConfig {
         n_samples: 5000,
         ls_frac: 0.2,
@@ -432,7 +433,7 @@ fn pack_lbf_vs_pack_on_production_fixture() {
     let lbf20_result = pack_lbf_with_config(request.clone(), cfg20).unwrap();
     let lbf20_elapsed = lbf20_start.elapsed();
     println!(
-        "pack_lbf (20×)  : placed={}/{}, density={:.2}%, elapsed={:?}",
+        "pack_lbf (20Ã—)  : placed={}/{}, density={:.2}%, elapsed={:?}",
         lbf20_result.placed_count,
         total_copies,
         lbf20_result.overall_density * 100.0,
@@ -443,7 +444,7 @@ fn pack_lbf_vs_pack_on_production_fixture() {
 #[test]
 #[ignore]
 fn lbf_on_irregular_trapezoid_fixture() {
-    // Mirrors tests/fixtures/trapezoid-mix.json — 6 trapezoids on a 48x96 bin.
+    // Mirrors tests/fixtures/trapezoid-mix.json â€” 6 trapezoids on a 48x96 bin.
     // Validates that LBF handles non-rectangular polygons correctly (legacy
     // NFP's claim-to-fame over MaxRects).
     let bin = Bin {
@@ -461,6 +462,7 @@ fn lbf_on_irregular_trapezoid_fixture() {
         allow_rotation: true,
         grain_axis: None,
         difficulty: None,
+        tag: None,
     };
     let items = vec![
         trapezoid(
@@ -517,7 +519,7 @@ fn lbf_on_irregular_trapezoid_fixture() {
 #[test]
 #[ignore]
 fn lbf_on_irregular_cone_fixture() {
-    // Mirrors tests/fixtures/cone-array.json — 4 quarter-cone annular sectors.
+    // Mirrors tests/fixtures/cone-array.json â€” 4 quarter-cone annular sectors.
     // This is the hardest concave-shape test; exercises jagua-rs CDE on
     // shapes that can in principle interlock through concave voids.
     let bin = Bin {
@@ -566,6 +568,7 @@ fn lbf_on_irregular_cone_fixture() {
         allow_rotation: true,
         grain_axis: None,
         difficulty: None,
+        tag: None,
     }];
 
     let instance =
@@ -637,7 +640,7 @@ fn lbf_multistart_with_rotation() {
             best_placed = placed;
             best_seed = *seed;
             best_density = density;
-            println!(" ← new best");
+            println!(" â† new best");
         } else {
             println!();
         }
@@ -669,7 +672,7 @@ fn lbf_vs_bssf_on_production_fixture_with_rotation() {
         bin.height
     );
 
-    // Note: BSSF doesn't support rotation, so we don't rerun it here — its
+    // Note: BSSF doesn't support rotation, so we don't rerun it here â€” its
     // rotation=false number (13/37) is the reference baseline.
     for &n_samples in &[5000usize, 25000, 50000] {
         for &seed in &[42u64, 7] {

@@ -4,7 +4,7 @@
 //
 // Wraps jagua-rs's `LBFOptimizerBP` with a deterministic multistart and
 // maps its BPSolution back into REMA's `PackResult` shape. This path
-// bypasses the FFD + cross-bin-swap + GLS pipeline entirely — LBF does
+// bypasses the FFD + cross-bin-swap + GLS pipeline entirely â€” LBF does
 // its own bin-selection greedily (open layouts first, then fresh bins).
 //
 // Empirical basis: `tests/lbf_bench.rs` shows LBF placing 32/37 (up from
@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 /// Default sample budget per item per attempt. 5_000 is the empirical
-/// sweet-spot from `tests/lbf_bench.rs` — below this the solver leaves
+/// sweet-spot from `tests/lbf_bench.rs` â€” below this the solver leaves
 /// items unplaced; above this the LBF loss function (x_max*10 + y_max)
 /// over-tightens and strands the tail.
 const DEFAULT_N_SAMPLES: usize = 5_000;
@@ -42,7 +42,7 @@ const DEFAULT_LS_FRAC: f32 = 0.2;
 /// How many seeds to try when no seed is supplied by the caller.
 /// Multistart dominates single-run because LBF is a randomized greedy
 /// heuristic with no backtracking; the bench shows wide variance across
-/// seeds (seed=42 → 24/37, seed=3 → 32/37 at matching configs).
+/// seeds (seed=42 â†’ 24/37, seed=3 â†’ 32/37 at matching configs).
 const DEFAULT_MULTISTART_SEEDS: usize = 10;
 
 /// Configuration knobs for `pack_lbf`.
@@ -72,7 +72,7 @@ impl Default for PackLbfConfig {
 
 /// Polygon-aware multi-bin packer backed by jagua-rs `LBFOptimizerBP`.
 ///
-/// Drop-in alternative to [`crate::application::pack::pack`] — same
+/// Drop-in alternative to [`crate::application::pack::pack`] â€” same
 /// input, same output. Set `USE_LBF_ENGINE=true` at the pack-cli caller
 /// to route through this path.
 pub fn pack_lbf(request: PackRequest) -> Result<PackResult, PackError> {
@@ -92,7 +92,7 @@ pub fn pack_lbf_with_config(
     }
     if cfg.multistart_seeds == 0 {
         return Err(PackError::EngineFailed(
-            "multistart_seeds must be ≥ 1".into(),
+            "multistart_seeds must be â‰¥ 1".into(),
         ));
     }
 
@@ -101,7 +101,7 @@ pub fn pack_lbf_with_config(
     let instance = to_jagua_instance(&request.bins, &request.items, request.clearance)?;
 
     // Honour the caller's time_budget_ms if supplied. We stop launching
-    // new multistart attempts once the deadline elapses — the best
+    // new multistart attempts once the deadline elapses â€” the best
     // result so far is returned. At least one attempt always runs.
     let deadline = request
         .time_budget_ms
@@ -110,7 +110,7 @@ pub fn pack_lbf_with_config(
     // Deterministic seed sequence from the caller's (optional) base seed.
     // Falls back to a fixed 42 when the request omits the seed so results
     // stay reproducible across runs. Multistart derives attempt seeds by
-    // `base + offset` — each attempt explores a different RNG trajectory.
+    // `base + offset` â€” each attempt explores a different RNG trajectory.
     let base_seed = request.seed.unwrap_or(42);
     let seeds: Vec<u64> = (0..cfg.multistart_seeds as u64)
         .map(|i| base_seed.wrapping_add(i))
@@ -119,14 +119,14 @@ pub fn pack_lbf_with_config(
     // Run multistart, keep the best-placed attempt. Ties broken by
     // higher density (more compact layout when placement count matches).
     // The first attempt always seeds `best_*` so we have a baseline even
-    // when every attempt places zero items — "zero placements" is a
+    // when every attempt places zero items â€” "zero placements" is a
     // valid result (e.g. all items oversized vs the bins) and must not
     // degrade into an Err.
     let mut best_solution: Option<jagua_rs::probs::bpp::entities::BPSolution> = None;
     let mut best_placed: usize = 0;
     let mut best_density: f32 = 0.0;
     for (attempts_run, seed) in seeds.into_iter().enumerate() {
-        // Deadline check — but always run the first attempt so the
+        // Deadline check â€” but always run the first attempt so the
         // caller gets a valid result even if the budget is too tight.
         if attempts_run > 0 && deadline.is_some_and(|d| std::time::Instant::now() >= d) {
             break;
@@ -150,18 +150,18 @@ pub fn pack_lbf_with_config(
         }
     }
 
-    let solution = best_solution.expect("multistart_seeds ≥ 1 guarantees a best_solution");
+    let solution = best_solution.expect("multistart_seeds â‰¥ 1 guarantees a best_solution");
 
     let mut placements: Vec<Placement> = Vec::new();
     let mut per_bin: Vec<BinResult> = Vec::new();
     let mut index_counters: HashMap<String, u32> = HashMap::new();
 
-    // The order of `request.bins` matters — it determines per_bin ordering
+    // The order of `request.bins` matters â€” it determines per_bin ordering
     // in the output. We walk it explicitly so an empty bin appears as a
     // zero-filled BinResult and so bin ordering is request-stable rather
     // than SlotMap-key-order. `to_jagua_instance` assigns container.id =
     // the bin's index in request.bins, so `enumerate()` is the natural
-    // lookup — no O(n²) inner search needed.
+    // lookup â€” no O(nÂ²) inner search needed.
     for (bin_idx, bin) in request.bins.iter().enumerate() {
         let layout = solution
             .layout_snapshots
@@ -177,7 +177,7 @@ pub fn pack_lbf_with_config(
                 snapshot_to_placements(ls, &instance, &request.items, &bin.bin_id);
 
             for p in placements_this_bin {
-                // Global `instance_index` renumbering per shape — same
+                // Global `instance_index` renumbering per shape â€” same
                 // convention as `pack.rs` so downstream consumers don't
                 // need to know which path produced the result.
                 let counter = index_counters.entry(p.shape_id.clone()).or_insert(0);
@@ -227,6 +227,8 @@ pub fn pack_lbf_with_config(
             },
             efficiency,
             scrap_ratio: 1.0 - efficiency,
+            free_regions: Vec::new(),
+            offcuts: Vec::new(),
         });
     }
 
@@ -300,7 +302,7 @@ fn run_single_lbf(
 ///
 /// Mirrors `search::mod::snapshot_to_seed` but writes `Placement` (the
 /// domain output type) directly instead of passing through `SeedPlacement`.
-/// The `instance_index` field is left as a per-bin counter here — the
+/// The `instance_index` field is left as a per-bin counter here â€” the
 /// top-level caller renumbers across bins to match the `pack.rs`
 /// convention.
 fn snapshot_to_placements(
@@ -357,6 +359,7 @@ fn snapshot_to_placements(
             width,
             height,
             difficulty: None,
+            tag: None,
         });
     }
     placements
@@ -365,10 +368,10 @@ fn snapshot_to_placements(
 /// Apply a jagua `DTransformation` (rotate about origin, then translate)
 /// to a `Point2D`.
 ///
-/// Precision: jagua-rs exposes transformations in f32, so the f64→f32→f64
+/// Precision: jagua-rs exposes transformations in f32, so the f64â†’f32â†’f64
 /// round-trip here caps output precision at ~7 significant digits. For
-/// REMA's typical coordinate range (0–400 inches) that's safely below
-/// 0.0001" — finer than any physical cut tolerance.
+/// REMA's typical coordinate range (0â€“400 inches) that's safely below
+/// 0.0001" â€” finer than any physical cut tolerance.
 fn apply_dtransformation_to_point(dt: &DTransformation, p: Point2D) -> Point2D {
     let theta = dt.rotation.into_inner();
     let cos = theta.cos();
@@ -408,6 +411,7 @@ mod tests {
             allow_rotation: true,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
@@ -450,7 +454,7 @@ mod tests {
 
     #[test]
     fn packs_simple_rectangle_fixture() {
-        // 3 rects on a generous bin — all must fit.
+        // 3 rects on a generous bin â€” all must fit.
         let req = simple_request(
             vec![bin("b1", 48.0, 96.0)],
             vec![rect_part("rect-a", 3, 10.0, 5.0)],
@@ -474,10 +478,10 @@ mod tests {
     #[test]
     fn rolls_to_second_bin_on_overflow() {
         // 3 rects each almost-full on their respective bin. LBF's uniform
-        // sampling is probabilistic; an exactly-fitting item (20×10 in
-        // 20×10) would require sampling x=0, y=0 exactly, which has
-        // zero probability under continuous uniform sampling. Use 18×9
-        // rects so there is 2×1 of slack — LBF has positive probability
+        // sampling is probabilistic; an exactly-fitting item (20Ã—10 in
+        // 20Ã—10) would require sampling x=0, y=0 exactly, which has
+        // zero probability under continuous uniform sampling. Use 18Ã—9
+        // rects so there is 2Ã—1 of slack â€” LBF has positive probability
         // per sample of finding a feasible position.
         let req = simple_request(
             vec![bin("A", 20.0, 10.0), bin("B", 20.0, 10.0)],

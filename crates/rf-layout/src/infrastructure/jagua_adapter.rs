@@ -1,4 +1,4 @@
-// engine/crates/rf-layout/src/infrastructure/jagua_adapter.rs
+﻿// engine/crates/rf-layout/src/infrastructure/jagua_adapter.rs
 use crate::domain::{Bin, PackError, Part};
 
 use jagua_rs::collision_detection::CDEConfig;
@@ -193,6 +193,7 @@ mod tests {
             allow_rotation: true,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 

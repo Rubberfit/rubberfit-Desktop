@@ -1,4 +1,4 @@
-// engine/crates/rf-layout/src/infrastructure/search/multi.rs
+﻿// engine/crates/rf-layout/src/infrastructure/search/multi.rs
 //
 // Task 12: multi-bin orchestrator (`optimize_multi`).
 //
@@ -6,14 +6,14 @@
 // and Task 5-8's per-bin GLS into a unified multi-bin search loop.
 // `pack.rs` becomes a thin result aggregator after this lands.
 //
-// Scope choice — "batch mode" (Codex-flagged trade-off): sparrow's
+// Scope choice â€” "batch mode" (Codex-flagged trade-off): sparrow's
 // `Separator::separate` owns its strike/iteration state as locals
 // and is NOT resumable mid-loop. Rather than refactor Separator to
 // expose a resumable `step()` (which would be a 2-3 task scope),
 // Task 12 runs each round as:
 //   1. Optimize every non-empty bin to strike-limit via a fresh
 //      `search::optimize` call.
-//   2. Apply operator ladder (unload → migrate → swap).
+//   2. Apply operator ladder (unload â†’ migrate â†’ swap).
 //   3. Repeat until operators exhaust or budget runs out.
 //
 // This trades fine-grained iteration interleaving for implementation
@@ -21,7 +21,7 @@
 // benchmarks demand it.
 //
 // Codex-locked invariants (from .claude/research/task12/codex-signoff.md):
-//   - Single-bin fast path bypasses the whole orchestrator → Task 9 parity preserved.
+//   - Single-bin fast path bypasses the whole orchestrator â†’ Task 9 parity preserved.
 //   - Positional RNG consumption: one `next_u64()` per bin index per round, even
 //     for empty bins, to keep the RNG stream bit-identical regardless of which
 //     bins are populated.
@@ -52,9 +52,9 @@ use std::time::Instant;
 //
 // Raising MAX_ROUNDS to 60 / MAX_OPERATOR_GAP to 16 /
 // TERMINATION_NOOP_TICKS to 8 produced ZERO density lift on all 9
-// RF parity fixtures × 3 modes × 2 seeds. The operators
+// RF parity fixtures Ã— 3 modes Ã— 2 seeds. The operators
 // (swap_two, migrate, unload_lightest_bin) return Ok(None) on the
-// first tick — FFD's initial assignment is already Pareto-optimal
+// first tick â€” FFD's initial assignment is already Pareto-optimal
 // under the lex score `(closed_bins, concentration)` for this
 // fixture family, so no amount of extra rounds changes the outcome.
 //
@@ -112,7 +112,7 @@ pub fn optimize_multi_with_hooks(
         em.emit_baseline(&assignment, &request.bins, &request.items, "explore");
     }
 
-    // Early-cancel check — if token is already set, return immediately
+    // Early-cancel check â€” if token is already set, return immediately
     // with the FFD-only assignment as the best-so-far result.
     if is_cancelled(cancel.as_ref()) {
         return Ok(OptimizeMultiOutcome {
@@ -121,7 +121,7 @@ pub fn optimize_multi_with_hooks(
         });
     }
 
-    // Single-bin fast path — bypass the entire orchestrator. Task 9
+    // Single-bin fast path â€” bypass the entire orchestrator. Task 9
     // parity fixtures depend on this delegating to today's `optimize`
     // semantics without instantiating orch RNG, round counters, or
     // operator scheduling.
@@ -173,7 +173,7 @@ pub fn optimize_multi_with_hooks(
             });
         }
 
-        // Cancel check between rounds — Codex-locked: short-circuit
+        // Cancel check between rounds â€” Codex-locked: short-circuit
         // BEFORE mutating back-off state.
         if is_cancelled(cancel.as_ref()) {
             return Ok(OptimizeMultiOutcome {
@@ -199,9 +199,9 @@ pub fn optimize_multi_with_hooks(
                 rounds_until_next_operator = 0;
             }
             None => {
-                // Codex sign-off §3: if cancel fired during the ladder,
+                // Codex sign-off Â§3: if cancel fired during the ladder,
                 // it short-circuits `apply_operator_ladder` with
-                // `Some(cur)` (unchanged) — we detect the flag here
+                // `Some(cur)` (unchanged) â€” we detect the flag here
                 // and skip the no-op back-off mutation.
                 if is_cancelled(cancel.as_ref()) {
                     return Ok(OptimizeMultiOutcome {
@@ -269,14 +269,14 @@ fn optimize_all_bins(
     let n_bins = request.bins.len();
     #[allow(clippy::needless_range_loop)]
     for bin_idx in 0..n_bins {
-        // Positional RNG draw — runs for every bin regardless of
+        // Positional RNG draw â€” runs for every bin regardless of
         // whether we actually optimize it. Codex-locked.
         let bin_seed: u64 = orch_rng.random();
 
         if Instant::now() >= global_deadline {
             continue;
         }
-        // Cancel check between bins (Codex plan §4).
+        // Cancel check between bins (Codex plan Â§4).
         if is_cancelled(cancel) {
             continue;
         }
@@ -329,12 +329,12 @@ fn apply_operator_ladder(
     let items = &request.items;
     let clearance = request.clearance;
 
-    // Cancel check before unload (Codex plan §4: between operator stages).
+    // Cancel check before unload (Codex plan Â§4: between operator stages).
     if is_cancelled(cancel) {
         return Ok(None);
     }
 
-    // 1. unload — one-shot, scans all bins internally.
+    // 1. unload â€” one-shot, scans all bins internally.
     if let Some(new) = unload_lightest_bin(assignment, bins, items, clearance)? {
         return Ok(Some(new));
     }
@@ -342,7 +342,7 @@ fn apply_operator_ladder(
         return Ok(None);
     }
 
-    // 2. consolidate_tail_bin (Tier 6) — post-unload repair for 2-bin
+    // 2. consolidate_tail_bin (Tier 6) â€” post-unload repair for 2-bin
     // jobs with collapsed tails. No-op on everything else (gated
     // internally), so parity-safe for the 9 existing fixtures.
     if let Some(new) = consolidate_tail_bin(assignment, bins, items, clearance)? {
@@ -352,7 +352,7 @@ fn apply_operator_ladder(
         return Ok(None);
     }
 
-    // 3. migrate — try both directions per bin pair.
+    // 3. migrate â€” try both directions per bin pair.
     for a in 0..n_bins {
         for b in (a + 1)..n_bins {
             if is_cancelled(cancel) {
@@ -370,7 +370,7 @@ fn apply_operator_ladder(
         return Ok(None);
     }
 
-    // 4. swap_two — pair enumeration.
+    // 4. swap_two â€” pair enumeration.
     for a in 0..n_bins {
         for b in (a + 1)..n_bins {
             if is_cancelled(cancel) {
@@ -409,6 +409,7 @@ fn items_for_seed(seed: &SeedResult, original: &[Part]) -> Vec<Part> {
                 allow_rotation: part.allow_rotation,
                 grain_axis: part.grain_axis,
                 difficulty: part.difficulty,
+                tag: part.tag.clone(),
             })
         })
         .collect()
@@ -435,6 +436,7 @@ mod tests {
             allow_rotation: false,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
@@ -518,8 +520,8 @@ mod tests {
         let t0 = Instant::now();
         let _ = optimize_multi(asn, &req).unwrap();
         let elapsed = t0.elapsed().as_millis();
-        // Generous ceiling — termination is cooperative but should be
-        // well under 10× the budget.
+        // Generous ceiling â€” termination is cooperative but should be
+        // well under 10Ã— the budget.
         assert!(
             elapsed < 5_000,
             "optimize_multi exceeded 5s with 100ms budget (elapsed: {}ms)",
@@ -581,7 +583,7 @@ mod tests {
 
     #[test]
     fn optimize_multi_exp_backoff_terminates() {
-        // Simple fixture where operators have no useful move — loop
+        // Simple fixture where operators have no useful move â€” loop
         // should terminate via back-off, not run to MAX_ROUNDS.
         let mut req = test_request(
             vec![bin("A", 30.0, 30.0), bin("B", 30.0, 30.0)],

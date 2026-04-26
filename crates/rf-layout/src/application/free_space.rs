@@ -203,12 +203,13 @@ pub fn extract_free_space_two_signal(
             Polygon::new(source.to_vec()).ok()
         })
         .collect();
-    let raw_offcuts =
-        extract_offcuts_with_obstacles(&bin.bin_id, &[stock.clone()], &obstacles);
-    let reusable: Vec<ClassifiedOffcut> = raw_offcuts
-        .into_iter()
-        .filter(|o| matches!(o.kind, OffcutKind::Reusable))
-        .collect();
+    // Emit BOTH Reusable and Scrap classifications. Reusable rects
+    // render as amber on top of the bin-wide scrap polygon; Scrap rects
+    // are visible-only when the operator toggles the inscribed-rect
+    // debug overlay in the visualizer (see `layout-visualizer.tsx`).
+    // Production rendering ignores Scrap offcuts because the bin-wide
+    // scrap polygon already covers their geometry.
+    let offcuts = extract_offcuts_with_obstacles(&bin.bin_id, &[stock.clone()], &obstacles);
 
     // Scrap = `stock − parts`. One bin-wide Clipper diff produces one
     // outer polygon per disjoint scrap cluster (typically just one for
@@ -233,7 +234,7 @@ pub fn extract_free_space_two_signal(
         .filter(|p| p.area() >= MIN_VISIBLE_SCRAP_SQIN)
         .collect();
 
-    (free_regions, reusable)
+    (free_regions, offcuts)
 }
 
 /// Per-placement `bbox(polygon) − polygon`, unioned across every
@@ -822,30 +823,25 @@ mod tests {
             shape_trapped_expected
         );
 
-        // After the partition, no Scrap-kind offcuts should survive in
-        // the offcuts list — they all folded into free_regions.
+        // Reusable offcuts are still produced for amber rendering.
         assert!(
-            offcuts.iter().all(|o| matches!(o.kind, OffcutKind::Reusable)),
-            "all offcuts should be Reusable after fold; got {:?}",
-            offcuts.iter().map(|o| o.kind).collect::<Vec<_>>()
+            offcuts.iter().any(|o| matches!(o.kind, OffcutKind::Reusable)),
+            "expected at least one Reusable offcut"
         );
     }
 
     #[test]
-    fn two_signal_emits_no_scrap_kind_offcuts() {
-        // The partition in extract_free_space_two_signal moves every
-        // Scrap-classified offcut into free_regions. The offcuts list
-        // must end with only Reusable entries, regardless of fixture.
+    fn two_signal_emits_both_reusable_and_scrap_offcuts() {
+        // The pipeline preserves both classifications so the frontend
+        // can render Reusable as amber and Scrap as a debug overlay.
+        // For a sector in a 96×48 bin we expect at least one of each.
         let bin = fresh_bin("b1", 48.0, 96.0);
         let p = annular_sector_placement("b1", 10.0, 10.0, 3.0, 6.0, 120.0, 24);
         let (_, offcuts) = extract_free_space_two_signal(&bin, &[&p]);
-        for o in &offcuts {
-            assert!(
-                matches!(o.kind, OffcutKind::Reusable),
-                "found Scrap offcut at ({},{}) {}×{} — should have folded into free_regions",
-                o.x, o.y, o.width, o.height
-            );
-        }
+        assert!(
+            offcuts.iter().any(|o| matches!(o.kind, OffcutKind::Reusable)),
+            "expected at least one Reusable offcut"
+        );
     }
 
     #[test]

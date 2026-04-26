@@ -82,6 +82,16 @@ export interface LayoutModel {
   offcuts: LayoutRegion[]
   scrap: LayoutRegion[]
 
+  /**
+   * Inscribed-rect debug overlay — every rectangle the Rust
+   * `extract_offcuts_with_obstacles` pass classified as Scrap (below
+   * Reusable thresholds). Production rendering ignores this; the
+   * AutoNest visualizer paints them with a dashed darker outline only
+   * when the operator toggles the "Show inscribed rects" tick. Useful
+   * for debugging the histogram + monotonic-stack extractor's output.
+   */
+  debugScrapRects?: LayoutRegion[]
+
   placedCount: number
   overflowCount: number
   usedAreaSqFt: number

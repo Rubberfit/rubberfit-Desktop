@@ -178,6 +178,7 @@ export function AutoNestPage() {
   // Off by default; surfaces in the Graph card header only when at
   // least one cone is being packed.
   const [showPackHullOverlay, setShowPackHullOverlay] = useState(false)
+  const [showInscribedScrapRects, setShowInscribedScrapRects] = useState(false)
   const [conePackingMode, setConePackingMode] = useState<ConePackingMode>("annularSector")
   const { status: packStatus, requestPack, invalidate } = usePackGate()
 
@@ -562,6 +563,13 @@ export function AutoNestPage() {
                       Show pack hull
                     </label>
                   )}
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Checkbox
+                      checked={showInscribedScrapRects}
+                      onCheckedChange={(v) => setShowInscribedScrapRects(v === true)}
+                    />
+                    Show inscribed rects
+                  </label>
                   {cutMetrics !== null && cutMetrics.partsCompleted > 0 && (
                     <Button size="sm" onClick={handleExportPdf} disabled={isExporting}>
                       <FileDown className="mr-1.5 h-4 w-4" />
@@ -586,6 +594,7 @@ export function AutoNestPage() {
                   packError={packError}
                   onMetricsChange={setCutMetrics}
                   showPackHullOverlay={canShowPackHullOverlay && showPackHullOverlay}
+                  showInscribedScrapRects={showInscribedScrapRects}
                 />
               ) : (
                 <PackPrompt

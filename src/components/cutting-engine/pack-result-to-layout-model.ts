@@ -73,18 +73,16 @@ export function packResultToLayoutModel(
     const offcuts: LayoutRegion[] =
       binResult?.offcuts.filter((o) => o.kind === "reusable").map(offcutToRegion) ?? []
 
-    // Scrap is everything else in the waste: classified scrap rects
-    // from the inscribed-rect pass + the raw `freeRegions` polygons
-    // (which preserve irregular waste shape for cone/trapezoid mixes
-    // where rectangular inscribed rects would lose fidelity). Both
-    // overlap geometrically — that's fine because reusable amber
-    // rects paint on top, masking the scrap underneath where they
-    // overlap.
-    const scrapRects: LayoutRegion[] =
-      binResult?.offcuts.filter((o) => o.kind === "scrap").map(offcutToRegion) ?? []
-    const scrapPolygons: LayoutRegion[] =
+    // Scrap = the bin-wide `freeRegions` polygon (one continuous red
+    // layer per disjoint scrap cluster). Scrap-classified inscribed
+    // rects from the Rust pipeline are NOT mixed in here — that
+    // produced visible faint-rectangle outlines overlapping the
+    // polygon. They're routed to `debugScrapRects` for the optional
+    // overlay instead.
+    const scrap: LayoutRegion[] =
       binResult?.freeRegions.map((poly) => polygonToRegion(poly)) ?? []
-    const scrap = [...scrapPolygons, ...scrapRects]
+    const debugScrapRects: LayoutRegion[] =
+      binResult?.offcuts.filter((o) => o.kind === "scrap").map(offcutToRegion) ?? []
 
     const usedSqFt = (binResult?.usedArea ?? 0) / 144
     // Reusable area = sum of reusable offcut bboxes, capped at the
@@ -108,6 +106,7 @@ export function packResultToLayoutModel(
       parts,
       offcuts,
       scrap,
+      debugScrapRects,
       placedCount: placements.length,
       overflowCount: 0,
       usedAreaSqFt: usedSqFt,

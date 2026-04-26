@@ -55,6 +55,14 @@ export interface LayoutVisualizerProps {
    * rendered annular sector.
    */
   showPackHullOverlay?: boolean
+  /**
+   * Debug overlay: when true, paint each `LayoutModel.debugScrapRects`
+   * entry as a dashed darker-red outline so the operator can see the
+   * raw inscribed-rect / monotonic-histogram output from
+   * `extract_offcuts_with_obstacles`. Production rendering ignores
+   * these rects (they overlap the bin-wide scrap polygon already).
+   */
+  showInscribedScrapRects?: boolean
 }
 
 export default function LayoutVisualizer({
@@ -66,6 +74,7 @@ export default function LayoutVisualizer({
   onMetricsChange,
   onLayoutChange,
   showPackHullOverlay,
+  showInscribedScrapRects,
 }: LayoutVisualizerProps) {
   const patternSeed = useId().replace(/:/g, "")
   const sheets = layouts && layouts.length > 0 ? layouts : null
@@ -142,6 +151,7 @@ export default function LayoutVisualizer({
             totalSheets={sheets.length}
             patternSeed={`${patternSeed}-s${i}`}
             showPackHullOverlay={showPackHullOverlay}
+            showInscribedScrapRects={showInscribedScrapRects}
           />
         ))}
       </div>
@@ -412,12 +422,14 @@ function SheetSvg({
   totalSheets,
   patternSeed,
   showPackHullOverlay,
+  showInscribedScrapRects,
 }: {
   layout: LayoutModel
   sheetIndex: number
   totalSheets: number
   patternSeed: string
   showPackHullOverlay?: boolean
+  showInscribedScrapRects?: boolean
 }) {
   const layout = useMemo(
     () => computeSheetLayout(model.sheetWidth, model.sheetLength),
@@ -574,6 +586,24 @@ function SheetSvg({
               layout={layout}
             />
           ))}
+          {/* Debug overlay: inscribed Scrap-classified rects, dashed
+              darker-red outline. Only rendered when the operator
+              ticks "Show inscribed rects". */}
+          {showInscribedScrapRects &&
+            model.debugScrapRects?.map((region, i) => (
+              <rect
+                key={`debug-scrap-${i}`}
+                x={layout.surfaceX + region.x * layout.scale}
+                y={layout.surfaceY + region.y * layout.scale}
+                width={region.width * layout.scale}
+                height={region.height * layout.scale}
+                fill="none"
+                stroke="rgba(153, 27, 27, 0.85)"
+                strokeWidth={1.25}
+                strokeDasharray="4 3"
+                style={{ pointerEvents: "none" }}
+              />
+            ))}
           {/* Placed parts. */}
           {model.parts.map((part, i) => (
             <PartShape

@@ -69,6 +69,9 @@
 //     regardless.
 
 use crate::application::offcut_classifier::classify_rect;
+use crate::application::offcut_extraction_strategy::{
+    offcut_extraction_strategy_for, OffcutExtractionStrategy, OffcutExtractionStrategyKind,
+};
 use crate::domain::{Bin, ClassifiedOffcut, OffcutKind, Placement};
 use rf_geom::application::inscribed::{
     largest_inscribed_rect, largest_inscribed_rect_avoiding, snap_rect_to_polygon_and_obstacles,
@@ -131,6 +134,20 @@ pub fn extract_free_space_legacy(
     bin: &Bin,
     placements_in_bin: &[&Placement],
 ) -> (Vec<Polygon>, Vec<ClassifiedOffcut>) {
+    let strategy = offcut_extraction_strategy_for(OffcutExtractionStrategyKind::default());
+    extract_free_space_legacy_with(bin, placements_in_bin, strategy.as_ref())
+}
+
+/// Same as `extract_free_space_legacy`, but with the offcut-extraction
+/// algorithm injected so the orchestrator can swap implementations
+/// without forking this function. Used by `LegacyScrapStrategy`; the
+/// no-arg form above wraps this with the default strategy for tests
+/// and direct callers.
+pub fn extract_free_space_legacy_with(
+    bin: &Bin,
+    placements_in_bin: &[&Placement],
+    offcut: &dyn OffcutExtractionStrategy,
+) -> (Vec<Polygon>, Vec<ClassifiedOffcut>) {
     if placements_in_bin.is_empty() || bin.width <= 0.0 || bin.height <= 0.0 {
         return (Vec::new(), Vec::new());
     }
@@ -160,7 +177,7 @@ pub fn extract_free_space_legacy(
         Err(_) => Vec::new(),
     };
 
-    let offcuts = extract_offcuts(&bin.bin_id, &free_regions);
+    let offcuts = offcut.extract(&bin.bin_id, &free_regions, &[]);
 
     (free_regions, offcuts)
 }
@@ -185,6 +202,20 @@ pub fn extract_free_space_legacy(
 pub fn extract_free_space_two_signal(
     bin: &Bin,
     placements_in_bin: &[&Placement],
+) -> (Vec<Polygon>, Vec<ClassifiedOffcut>) {
+    let strategy = offcut_extraction_strategy_for(OffcutExtractionStrategyKind::default());
+    extract_free_space_two_signal_with(bin, placements_in_bin, strategy.as_ref())
+}
+
+/// Same as `extract_free_space_two_signal`, but with the offcut-
+/// extraction algorithm injected so the orchestrator can swap
+/// implementations without forking this function. Used by
+/// `TwoSignalScrapStrategy`; the no-arg form above wraps this with the
+/// default strategy for tests and direct callers.
+pub fn extract_free_space_two_signal_with(
+    bin: &Bin,
+    placements_in_bin: &[&Placement],
+    offcut: &dyn OffcutExtractionStrategy,
 ) -> (Vec<Polygon>, Vec<ClassifiedOffcut>) {
     if placements_in_bin.is_empty() || bin.width <= 0.0 || bin.height <= 0.0 {
         return (Vec::new(), Vec::new());
@@ -225,7 +256,7 @@ pub fn extract_free_space_two_signal(
     // debug overlay in the visualizer (see `layout-visualizer.tsx`).
     // Production rendering ignores Scrap offcuts because the bin-wide
     // scrap polygon already covers their geometry.
-    let offcuts = extract_offcuts_with_obstacles(&bin.bin_id, &[stock.clone()], &obstacles);
+    let offcuts = offcut.extract(&bin.bin_id, &[stock.clone()], &obstacles);
 
     // Scrap = `stock − parts`. One bin-wide Clipper diff produces one
     // outer polygon per disjoint scrap cluster (typically just one for
@@ -388,26 +419,26 @@ fn build_stock_polygon(width: f64, height: f64) -> Option<Polygon> {
     .ok()
 }
 
-/// Legacy entry point — no obstacles. Iteratively extract classified
-/// offcut rectangles from a list of free-region polygons. Each
-/// iteration:
+/// Iteratively extract classified offcut rectangles from
+/// `free_regions`. Each candidate rect is required to avoid every
+/// polygon in `obstacles` (empty slice = no obstacles, legacy
+/// behaviour). Each iteration:
 ///   1. Find the polygon with the largest available inscribed rect.
-///   2. Classify the rect, push to the output.
-///   3. Subtract the rect from its source polygon (Clipper diff).
+///   2. Snap to true geometric edges and classify, push to output.
+///   3. Subtract the unsnapped grid rect from its source polygon
+///      (Clipper diff).
 ///   4. Drop residual polygons below `MIN_REGION_AREA_SQIN`.
 ///
-/// Stops when no more meaningfully-sized rects can be inscribed or
-/// `MAX_OFFCUTS_PER_BIN` is reached.
-fn extract_offcuts(bin_id: &str, free_regions: &[Polygon]) -> Vec<ClassifiedOffcut> {
-    extract_offcuts_with_obstacles(bin_id, free_regions, &[])
-}
-
-/// Same as `extract_offcuts`, but each candidate rect is required to
-/// avoid every polygon in `obstacles`. Used by the two-signal
-/// pipeline so reusable rectangles inscribed in the bin polygon
-/// don't extend through placed parts. Empty obstacles → identical
-/// behaviour to `extract_offcuts`.
-fn extract_offcuts_with_obstacles(
+/// Stops when no more meaningfully-sized rects can be inscribed,
+/// `MAX_OFFCUTS_PER_BIN` is reached, or `MAX_OFFCUT_EXTRACT_MS`
+/// elapses.
+///
+/// Exposed `pub(crate)` so
+/// `application::offcut_extraction_strategy::GreedyMaxRectStrategy`
+/// can call it without re-implementing the loop. New extraction
+/// strategies live next to it as their own modules and are dispatched
+/// via the `OffcutExtractionStrategy` trait — see issue #14.
+pub(crate) fn extract_offcuts_with_obstacles(
     bin_id: &str,
     free_regions: &[Polygon],
     obstacles: &[Polygon],

@@ -72,6 +72,7 @@ fn long_budget_fixture() -> PackRequest {
         cone_strategy: None,
         cone_packing_mode: None,
         scrap_strategy: None,
+        offcut_extraction_strategy: None,
     }
 }
 
@@ -169,6 +170,7 @@ fn no_cancel_token_completes_normally() {
         cone_strategy: None,
         cone_packing_mode: None,
         scrap_strategy: None,
+        offcut_extraction_strategy: None,
     };
     let result_a = pack(req.clone()).expect("pack");
     let result_b = pack_with_options(req, SearchOptions::default()).expect("pack");

@@ -150,6 +150,17 @@ pub struct PackRequest {
     /// comparison or rollback. See `application::scrap_strategy`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub scrap_strategy: Option<crate::application::scrap_strategy::ScrapStrategyKind>,
+    /// Which offcut-extraction algorithm the active scrap pipeline
+    /// uses to inscribe reusable rectangles in the bin's free space.
+    /// None defaults to `OffcutExtractionStrategyKind::GreedyMaxRect`
+    /// (current production behaviour: iterative greedy
+    /// maximal-inscribed-rect, no merge or backtrack). Future variants
+    /// (post-loop pairwise merge, stripe partition, all-maximal-rect
+    /// enumeration) tracked in issue #14. See
+    /// `application::offcut_extraction_strategy`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub offcut_extraction_strategy:
+        Option<crate::application::offcut_extraction_strategy::OffcutExtractionStrategyKind>,
 }
 
 pub const FAST_MS: u64 = 2_000;

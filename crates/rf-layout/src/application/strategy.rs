@@ -179,6 +179,7 @@ where
         .collect();
     let scrap = crate::application::scrap_strategy::scrap_strategy_for(
         request.scrap_strategy.unwrap_or_default(),
+        request.offcut_extraction_strategy.unwrap_or_default(),
     );
 
     let mut result = run(request)?;
@@ -296,6 +297,7 @@ mod tests {
             cone_strategy: None,
             cone_packing_mode: None,
             scrap_strategy: None,
+            offcut_extraction_strategy: None,
         };
 
         let result = strategy_for(None)
@@ -332,6 +334,7 @@ mod tests {
             cone_strategy: None,
             cone_packing_mode: None,
             scrap_strategy: None,
+            offcut_extraction_strategy: None,
         };
 
         let result = strategy_for(None)

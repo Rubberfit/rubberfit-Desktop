@@ -3,6 +3,7 @@ pub mod cone_strategy;
 pub mod crossbin;
 pub mod free_space;
 pub mod offcut_classifier;
+pub mod offcut_extraction_strategy;
 pub mod pack;
 pub mod pack_lbf;
 pub mod pack_lbf_lns;
@@ -22,6 +23,10 @@ pub use pack::pack;
 pub use pack_lbf::{pack_lbf, pack_lbf_with_config, PackLbfConfig};
 pub use pack_lbf_lns::{pack_lbf_lns, pack_lbf_lns_with_config, PackLbfLnsConfig};
 pub use polish::{polish_placements, polish_score, PolishConfig, PolishScore};
+pub use offcut_extraction_strategy::{
+    offcut_extraction_strategy_for, GreedyMaxRectStrategy, OffcutExtractionStrategy,
+    OffcutExtractionStrategyKind,
+};
 pub use scrap_strategy::{
     scrap_strategy_for, LegacyScrapStrategy, ScrapStrategy, ScrapStrategyKind,
     TwoSignalScrapStrategy,

@@ -120,6 +120,21 @@ export type ConePackingMode = "convexHull" | "annularSector"
  */
 export type ScrapStrategy = "legacy" | "twoSignal"
 
+/**
+ * Algorithm the active scrap pipeline uses to inscribe reusable
+ * rectangles in the bin's free space. Mirrors
+ * `OffcutExtractionStrategyKind` in
+ * `crates/rf-layout/src/application/offcut_extraction_strategy.rs`.
+ *
+ * - `greedyMaxRect`: current production behaviour — iterative greedy
+ *   maximal-inscribed-rect extraction with no merge or backtrack
+ *   pass. Future variants (post-loop pairwise merge, stripe partition,
+ *   all-maximal-rect enumeration) are tracked in repo issue #14.
+ *
+ * Absent → Rust default (`greedyMaxRect`).
+ */
+export type OffcutExtractionStrategy = "greedyMaxRect"
+
 export interface PackRequest {
   bins: Bin[]
   clearance: number
@@ -134,6 +149,7 @@ export interface PackRequest {
   coneStrategy?: ConeStrategy
   conePackingMode?: ConePackingMode
   scrapStrategy?: ScrapStrategy
+  offcutExtractionStrategy?: OffcutExtractionStrategy
 }
 
 export interface Placement {

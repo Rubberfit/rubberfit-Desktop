@@ -393,6 +393,7 @@ fn timing_fast_mode_under_ceiling() {
         cone_strategy: None,
         cone_packing_mode: None,
         scrap_strategy: None,
+        offcut_extraction_strategy: None,
     };
     for f in fixtures() {
         let req = PackRequest {

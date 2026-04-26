@@ -16,14 +16,27 @@
 //     ConvexHull packing mode show the hull-minus-sector donut as scrap
 //     too. Production default.
 //
+// Both impls delegate the actual offcut-rectangle classification to an
+// `OffcutExtractionStrategy` (`application::offcut_extraction_strategy`)
+// held on the struct. That sub-strategy decides *how* the rectangles
+// are computed (greedy max-rect today; future stripe-partition or
+// post-loop merge variants tracked in issue #14). The scrap strategy
+// decides *what* counts as scrap vs offcut and assembles the bin-level
+// signals around that.
+//
 // Same shape as `application::strategy::NestingStrategy` and
 // `application::cone_strategy::ConePolygonStrategy`: trait + factory,
 // not a bare match. Adding a new pipeline (e.g. operator-tuned scrap
 // thresholds) = new struct + impl + one extra match arm in
 // `scrap_strategy_for`, nothing else.
 //
-// Wire-driven via `PackRequest.scrap_strategy`. Absent → `TwoSignal`.
+// Wire-driven via `PackRequest.scrap_strategy` and
+// `PackRequest.offcut_extraction_strategy`. Both absent →
+// `TwoSignal` + `GreedyMaxRect`.
 
+use crate::application::offcut_extraction_strategy::{
+    offcut_extraction_strategy_for, OffcutExtractionStrategy, OffcutExtractionStrategyKind,
+};
 use crate::domain::{Bin, ClassifiedOffcut, Placement};
 use rf_geom::domain::Polygon;
 use serde::{Deserialize, Serialize};
@@ -58,8 +71,41 @@ pub enum ScrapStrategyKind {
     TwoSignal,
 }
 
-pub struct LegacyScrapStrategy;
-pub struct TwoSignalScrapStrategy;
+pub struct LegacyScrapStrategy {
+    offcut: Box<dyn OffcutExtractionStrategy>,
+}
+
+pub struct TwoSignalScrapStrategy {
+    offcut: Box<dyn OffcutExtractionStrategy>,
+}
+
+impl LegacyScrapStrategy {
+    pub fn new(offcut: Box<dyn OffcutExtractionStrategy>) -> Self {
+        Self { offcut }
+    }
+}
+
+impl Default for LegacyScrapStrategy {
+    fn default() -> Self {
+        Self::new(offcut_extraction_strategy_for(
+            OffcutExtractionStrategyKind::default(),
+        ))
+    }
+}
+
+impl TwoSignalScrapStrategy {
+    pub fn new(offcut: Box<dyn OffcutExtractionStrategy>) -> Self {
+        Self { offcut }
+    }
+}
+
+impl Default for TwoSignalScrapStrategy {
+    fn default() -> Self {
+        Self::new(offcut_extraction_strategy_for(
+            OffcutExtractionStrategyKind::default(),
+        ))
+    }
+}
 
 impl ScrapStrategy for LegacyScrapStrategy {
     fn name(&self) -> &'static str {
@@ -71,7 +117,11 @@ impl ScrapStrategy for LegacyScrapStrategy {
         bin: &Bin,
         placements: &[&Placement],
     ) -> (Vec<Polygon>, Vec<ClassifiedOffcut>) {
-        crate::application::free_space::extract_free_space_legacy(bin, placements)
+        crate::application::free_space::extract_free_space_legacy_with(
+            bin,
+            placements,
+            self.offcut.as_ref(),
+        )
     }
 }
 
@@ -85,16 +135,26 @@ impl ScrapStrategy for TwoSignalScrapStrategy {
         bin: &Bin,
         placements: &[&Placement],
     ) -> (Vec<Polygon>, Vec<ClassifiedOffcut>) {
-        crate::application::free_space::extract_free_space_two_signal(bin, placements)
+        crate::application::free_space::extract_free_space_two_signal_with(
+            bin,
+            placements,
+            self.offcut.as_ref(),
+        )
     }
 }
 
-/// Map a `ScrapStrategyKind` to a concrete strategy. New strategy =
-/// new struct + impl + one extra match arm here, nothing else.
-pub fn scrap_strategy_for(kind: ScrapStrategyKind) -> Box<dyn ScrapStrategy> {
-    match kind {
-        ScrapStrategyKind::Legacy => Box::new(LegacyScrapStrategy),
-        ScrapStrategyKind::TwoSignal => Box::new(TwoSignalScrapStrategy),
+/// Map a `(ScrapStrategyKind, OffcutExtractionStrategyKind)` pair to a
+/// concrete strategy. New scrap pipeline = new struct + impl + one
+/// extra match arm here, nothing else; new offcut pipeline = new arm
+/// in `offcut_extraction_strategy_for`.
+pub fn scrap_strategy_for(
+    scrap_kind: ScrapStrategyKind,
+    offcut_kind: OffcutExtractionStrategyKind,
+) -> Box<dyn ScrapStrategy> {
+    let offcut = offcut_extraction_strategy_for(offcut_kind);
+    match scrap_kind {
+        ScrapStrategyKind::Legacy => Box::new(LegacyScrapStrategy::new(offcut)),
+        ScrapStrategyKind::TwoSignal => Box::new(TwoSignalScrapStrategy::new(offcut)),
     }
 }
 
@@ -105,11 +165,19 @@ mod tests {
     #[test]
     fn factory_dispatches_to_named_impl() {
         assert_eq!(
-            scrap_strategy_for(ScrapStrategyKind::Legacy).name(),
+            scrap_strategy_for(
+                ScrapStrategyKind::Legacy,
+                OffcutExtractionStrategyKind::default()
+            )
+            .name(),
             "scrap_legacy"
         );
         assert_eq!(
-            scrap_strategy_for(ScrapStrategyKind::TwoSignal).name(),
+            scrap_strategy_for(
+                ScrapStrategyKind::TwoSignal,
+                OffcutExtractionStrategyKind::default()
+            )
+            .name(),
             "scrap_two_signal"
         );
     }

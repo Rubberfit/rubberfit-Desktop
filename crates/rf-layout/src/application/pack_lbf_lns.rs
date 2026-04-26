@@ -142,6 +142,7 @@ pub fn pack_lbf_lns_with_config(
             cone_strategy: request.cone_strategy,
             cone_packing_mode: request.cone_packing_mode,
             scrap_strategy: request.scrap_strategy,
+            offcut_extraction_strategy: request.offcut_extraction_strategy,
         };
 
         let sub_result = pack_lbf_lns_single_bin(sub_request, cfg.clone())?;
@@ -926,6 +927,7 @@ mod tests {
             cone_strategy: None,
             cone_packing_mode: None,
             scrap_strategy: None,
+            offcut_extraction_strategy: None,
         }
     }
 

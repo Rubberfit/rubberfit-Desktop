@@ -50,6 +50,7 @@ fn three_72x12_request() -> PackRequest {
         cone_strategy: None,
         cone_packing_mode: None,
         scrap_strategy: None,
+        offcut_extraction_strategy: None,
     }
 }
 

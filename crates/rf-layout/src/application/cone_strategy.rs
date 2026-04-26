@@ -184,7 +184,7 @@ pub fn parse_cone_dimensions(spec: &ShapeSpec) -> Result<ConeDimensions, PackErr
         .and_then(|v| v.as_f64())
         .map(|f| f as usize);
 
-    if !(outer_radius > inner_radius) {
+    if outer_radius <= inner_radius || outer_radius.is_nan() || inner_radius.is_nan() {
         return Err(PackError::EngineFailed(format!(
             "cone: outerRadius ({}) must exceed innerRadius ({})",
             outer_radius, inner_radius

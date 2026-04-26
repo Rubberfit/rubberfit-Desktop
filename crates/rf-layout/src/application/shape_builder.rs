@@ -102,12 +102,12 @@ pub fn build_polygon_from_spec(
 fn build_rect(spec: &ShapeSpec) -> Result<Vec<Point2D>, PackError> {
     let width = read_f64(&spec.params, "width")?;
     let height = read_f64(&spec.params, "height")?;
-    if !(width > 0.0) {
+    if width <= 0.0 || width.is_nan() {
         return Err(PackError::EngineFailed(
             "rect: width must be positive".into(),
         ));
     }
-    if !(height > 0.0) {
+    if height <= 0.0 || height.is_nan() {
         return Err(PackError::EngineFailed(
             "rect: height must be positive".into(),
         ));
@@ -126,7 +126,7 @@ fn build_rect(spec: &ShapeSpec) -> Result<Vec<Point2D>, PackError> {
 fn build_circle(spec: &ShapeSpec) -> Result<Vec<Point2D>, PackError> {
     let diameter = read_f64(&spec.params, "diameter")?;
     let segments = read_optional_usize(&spec.params, "segments")?.unwrap_or(24);
-    if !(diameter > 0.0) {
+    if diameter <= 0.0 || diameter.is_nan() {
         return Err(PackError::EngineFailed(
             "circle: diameter must be positive".into(),
         ));
@@ -151,17 +151,17 @@ fn build_trapezoid(spec: &ShapeSpec) -> Result<Vec<Point2D>, PackError> {
     let top_w = read_f64(&spec.params, "topWidth")?;
     let bot_w = read_f64(&spec.params, "bottomWidth")?;
     let height = read_f64(&spec.params, "height")?;
-    if !(top_w > 0.0) {
+    if top_w <= 0.0 || top_w.is_nan() {
         return Err(PackError::EngineFailed(
             "trapezoid: topWidth must be positive".into(),
         ));
     }
-    if !(bot_w > 0.0) {
+    if bot_w <= 0.0 || bot_w.is_nan() {
         return Err(PackError::EngineFailed(
             "trapezoid: bottomWidth must be positive".into(),
         ));
     }
-    if !(height > 0.0) {
+    if height <= 0.0 || height.is_nan() {
         return Err(PackError::EngineFailed(
             "trapezoid: height must be positive".into(),
         ));
@@ -189,7 +189,7 @@ fn build_ngon(spec: &ShapeSpec) -> Result<Vec<Point2D>, PackError> {
             sides
         )));
     }
-    if !(radius > 0.0) {
+    if radius <= 0.0 || radius.is_nan() {
         return Err(PackError::EngineFailed(
             "ngon: radius must be positive".into(),
         ));

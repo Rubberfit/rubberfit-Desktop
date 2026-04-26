@@ -50,16 +50,9 @@ pub trait NestingStrategy: Send + Sync + 'static {
 /// followed by density-changing Large Neighborhood Search refinement.
 /// This is the production default: ~34/37 placements on the production
 /// rectangle fixture vs. ~13/37 for the legacy FFD+GLS pipeline.
+#[derive(Default)]
 pub struct LbfLnsStrategy {
     pub config: PackLbfLnsConfig,
-}
-
-impl Default for LbfLnsStrategy {
-    fn default() -> Self {
-        Self {
-            config: PackLbfLnsConfig::default(),
-        }
-    }
 }
 
 impl NestingStrategy for LbfLnsStrategy {
@@ -76,16 +69,9 @@ impl NestingStrategy for LbfLnsStrategy {
 /// Constructive LBF only — no LNS refinement. Used for benches /
 /// tuning when you want to isolate constructive placement quality
 /// without LNS noise. Caller can opt in via `request.engine = Lbf`.
+#[derive(Default)]
 pub struct LbfStrategy {
     pub config: PackLbfConfig,
-}
-
-impl Default for LbfStrategy {
-    fn default() -> Self {
-        Self {
-            config: PackLbfConfig::default(),
-        }
-    }
 }
 
 impl NestingStrategy for LbfStrategy {
@@ -118,7 +104,7 @@ impl NestingStrategy for LegacyStrategy {
     }
 
     fn pack(&self, request: PackRequest) -> Result<PackResult, PackError> {
-        run_with_tag_echo(request, |req| crate::application::pack::pack(req))
+        run_with_tag_echo(request, crate::application::pack::pack)
     }
 }
 
@@ -132,7 +118,7 @@ pub fn strategy_for(engine: Option<PackEngine>) -> Box<dyn NestingStrategy> {
     match engine.unwrap_or(PackEngine::Default) {
         PackEngine::Default => Box::new(LbfLnsStrategy::default()),
         PackEngine::Lbf => Box::new(LbfStrategy::default()),
-        PackEngine::Legacy => Box::new(LegacyStrategy::default()),
+        PackEngine::Legacy => Box::new(LegacyStrategy),
     }
 }
 

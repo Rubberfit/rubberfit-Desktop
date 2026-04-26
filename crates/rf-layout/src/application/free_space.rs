@@ -72,7 +72,7 @@ use crate::application::offcut_classifier::classify_rect;
 use crate::application::offcut_extraction_strategy::{
     offcut_extraction_strategy_for, OffcutExtractionStrategy, OffcutExtractionStrategyKind,
 };
-use crate::domain::{Bin, ClassifiedOffcut, OffcutKind, Placement};
+use crate::domain::{Bin, ClassifiedOffcut, Placement};
 use rf_geom::application::inscribed::{
     largest_inscribed_rect, largest_inscribed_rect_avoiding, snap_rect_to_polygon_and_obstacles,
 };
@@ -117,8 +117,8 @@ const INSCRIBED_GRID_STEP: f64 = 0.25;
 /// 500 ms is a safety net for pathological obstacle arrangements.
 const MAX_OFFCUT_EXTRACT_MS: u64 = 500;
 
-/// Pre-fix scrap pipeline. `clip_difference(stock, placed_polygons)`
-/// + iterative inscribed-rect classification. Kept as the
+/// Pre-fix scrap pipeline: `clip_difference(stock, placed_polygons)`
+/// plus iterative inscribed-rect classification. Kept as the
 /// `LegacyScrapStrategy` body for A/B and rollback; the production
 /// default routes through `extract_free_space_two_signal` instead.
 ///
@@ -256,7 +256,7 @@ pub fn extract_free_space_two_signal_with(
     // debug overlay in the visualizer (see `layout-visualizer.tsx`).
     // Production rendering ignores Scrap offcuts because the bin-wide
     // scrap polygon already covers their geometry.
-    let offcuts = offcut.extract(&bin.bin_id, &[stock.clone()], &obstacles);
+    let offcuts = offcut.extract(&bin.bin_id, std::slice::from_ref(&stock), &obstacles);
 
     // Scrap = `stock − parts`. One bin-wide Clipper diff produces one
     // outer polygon per disjoint scrap cluster (typically just one for
@@ -394,7 +394,9 @@ fn bbox_polygon(poly: &[Point2D]) -> Option<Polygon> {
             max_y = v.y;
         }
     }
-    if !(max_x - min_x > 0.0) || !(max_y - min_y > 0.0) {
+    let dx = max_x - min_x;
+    let dy = max_y - min_y;
+    if dx <= 0.0 || dx.is_nan() || dy <= 0.0 || dy.is_nan() {
         return None;
     }
     Polygon::new(vec![

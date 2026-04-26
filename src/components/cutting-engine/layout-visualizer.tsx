@@ -357,51 +357,58 @@ function tagPillStyle(tag: string) {
 // ── Footer (per-sheet totals) ─────────────────────────────────────────────
 
 function SheetMetricsFooter({ totals }: { totals: Totals }) {
+  const fabScore100 = Math.round(totals.fabScore * 100)
+  const hasFabrication = totals.partsPlaced > 0
+  const fabValueClass = !hasFabrication
+    ? "text-muted-foreground"
+    : fabScore100 >= 80
+      ? "text-green-600"
+      : fabScore100 >= 60
+        ? "text-amber-600"
+        : "text-red-600"
+
   return (
-    <div className="grid grid-cols-2 gap-3 border-t border-border bg-background px-4 py-4 sm:grid-cols-4">
-      <Metric tone="stock" label="Stock" value={`${totals.stockSqFt.toFixed(2)} sq ft`} />
-      <Metric tone="used" label="Used" value={`${totals.usedSqFt.toFixed(2)} sq ft`} />
-      <Metric
-        tone="reusable"
-        label="Reusable offcut"
+    <div className="grid gap-3 border-t border-border bg-background px-4 py-4 md:grid-cols-6">
+      <MetricCard label="Parts Completed" value={`${totals.partsPlaced}`} />
+      <MetricCard label="Material Used" value={`${totals.usedSqFt.toFixed(2)} sq ft`} />
+      <MetricCard
+        label="Reusable Offcut"
         value={`${totals.reusableSqFt.toFixed(2)} sq ft`}
+        valueClass="text-amber-600"
       />
-      <Metric tone="scrap" label="Scrap" value={`${totals.scrapSqFt.toFixed(2)} sq ft`} />
+      <MetricCard
+        label="Scrap / Waste"
+        value={`${totals.scrapSqFt.toFixed(2)} sq ft`}
+        valueClass="text-red-600"
+      />
+      <MetricCard
+        label="Cut Pieces"
+        value={`${totals.partsPlaced + totals.partsOverflow}`}
+      />
+      <MetricCard
+        label="Fab Score"
+        value={hasFabrication ? `${fabScore100}/100` : "—"}
+        valueClass={fabValueClass}
+      />
     </div>
   )
 }
 
-type MetricTone = "stock" | "used" | "reusable" | "scrap"
-
-const METRIC_TONE_CLASSES: Record<MetricTone, { card: string; value: string }> = {
-  stock: {
-    card: "border-sky-200/70 bg-sky-50/70 dark:border-sky-800/50 dark:bg-sky-950/25",
-    value: "text-sky-700 dark:text-sky-300",
-  },
-  used: {
-    card: "border-emerald-200/70 bg-emerald-50/70 dark:border-emerald-800/50 dark:bg-emerald-950/25",
-    value: "text-emerald-700 dark:text-emerald-300",
-  },
-  reusable: {
-    card: "border-amber-200/80 bg-amber-50/75 dark:border-amber-800/50 dark:bg-amber-950/25",
-    value: "text-amber-700 dark:text-amber-300",
-  },
-  scrap: {
-    card: "border-rose-200/80 bg-rose-50/75 dark:border-rose-800/50 dark:bg-rose-950/25",
-    value: "text-rose-700 dark:text-rose-300",
-  },
-}
-
-function Metric({ label, value, tone }: { label: string; value: string; tone: MetricTone }) {
-  const classes = METRIC_TONE_CLASSES[tone]
+function MetricCard({
+  label,
+  value,
+  valueClass = "text-foreground",
+}: {
+  label: string
+  value: string
+  valueClass?: string
+}) {
   return (
-    <div className={`rounded-lg border p-3 ${classes.card}`}>
+    <div className="rounded-lg border bg-muted/20 p-3">
       <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
         {label}
       </div>
-      <div className={`mt-1 text-xl font-semibold leading-tight sm:text-2xl ${classes.value}`}>
-        {value}
-      </div>
+      <div className={`mt-1 text-2xl font-semibold ${valueClass}`}>{value}</div>
     </div>
   )
 }

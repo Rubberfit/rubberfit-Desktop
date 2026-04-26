@@ -46,6 +46,15 @@ export interface DebugOverlayOptions {
    * bin-wide scrap polygon already).
    */
   showInscribedScrapRects?: boolean
+  /**
+   * Paint axis-aligned bounding boxes for every placed part (violet)
+   * and every reusable offcut (emerald). Diagnostic for the case
+   * where a curved shape's silhouette appears to dip into a reusable
+   * offcut: if the part's AABB doesn't overlap any offcut's AABB,
+   * the apparent intrusion is just the silhouette outside the AABB,
+   * not a classifier miss.
+   */
+  showAabbOverlays?: boolean
 }
 
 export interface LayoutVisualizerProps {
@@ -674,6 +683,46 @@ function SheetSvg({
                 style={{ pointerEvents: "none" }}
               />
             ))}
+          {/* Debug overlay: AABBs for placed parts (violet) and
+              reusable offcuts (emerald). Only rendered when the
+              operator ticks "Show AABBs". Painted before parts so the
+              part fill stays readable but the outline still sits on
+              top of the offcut/scrap fills underneath. */}
+          {debugOptions?.showAabbOverlays && (
+            <>
+              {model.offcuts.map((region, i) => (
+                <rect
+                  key={`debug-aabb-offcut-${i}`}
+                  x={layout.surfaceX + region.x * layout.scale}
+                  y={layout.surfaceY + region.y * layout.scale}
+                  width={region.width * layout.scale}
+                  height={region.height * layout.scale}
+                  fill="none"
+                  stroke="rgba(16, 185, 129, 0.95)"
+                  strokeWidth={1.5}
+                  strokeDasharray="6 3"
+                  style={{ pointerEvents: "none" }}
+                />
+              ))}
+              {model.parts.map((part, i) => {
+                const aabb = partAabb(part)
+                return (
+                  <rect
+                    key={`debug-aabb-part-${i}`}
+                    x={layout.surfaceX + aabb.x * layout.scale}
+                    y={layout.surfaceY + aabb.y * layout.scale}
+                    width={aabb.width * layout.scale}
+                    height={aabb.height * layout.scale}
+                    fill="none"
+                    stroke="rgba(124, 58, 237, 0.95)"
+                    strokeWidth={1.5}
+                    strokeDasharray="6 3"
+                    style={{ pointerEvents: "none" }}
+                  />
+                )
+              })}
+            </>
+          )}
           {/* Placed parts. */}
           {model.parts.map((part, i) => (
             <PartShape
@@ -927,6 +976,38 @@ function bboxesOverlap(
 
 // ── Part renderer ─────────────────────────────────────────────────────────
 
+/**
+ * Axis-aligned bounding box of a placed part in stock-local inches.
+ *
+ * For shapes carrying a `polygon` (cones / sectors / trapezoids /
+ * ngons / custom polygons) the bbox is computed from the polygon
+ * vertices, which are already post-rotation and post-translation —
+ * this is the only correct path for non-rect shapes, since
+ * `part.x`/`part.y` are jagua's rotation-origin translation, not the
+ * rotated bbox top-left. For rect-family shapes without a polygon
+ * (`rect` / bare `circle` rendered via `rectFallback`) the placement
+ * rect is already the bbox.
+ *
+ * Used by both the part-label centring math in `PartShape` and the
+ * "Show AABBs" debug overlay in `SheetSvg` so the two never drift.
+ */
+function partAabb(part: PlacedPart): { x: number; y: number; width: number; height: number } {
+  if (part.polygon && part.polygon.length >= 3) {
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const pt of part.polygon) {
+      if (pt.x < minX) minX = pt.x
+      if (pt.y < minY) minY = pt.y
+      if (pt.x > maxX) maxX = pt.x
+      if (pt.y > maxY) maxY = pt.y
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+  }
+  return { x: part.x, y: part.y, width: part.width, height: part.height }
+}
+
 function PartShape({
   part,
   layout,
@@ -942,38 +1023,16 @@ function PartShape({
   // come from `rf_layout::Placement` which stores the jagua rotation-
   // origin translation, NOT the bbox top-left under rotation. Using
   // them directly puts the tag outside the shape (or outside the
-  // stock, where the parent clipPath swallows it). The polygon is
-  // already in stock-local post-rotation coordinates — the same data
-  // `renderPartGeometry` uses to draw the shape — so its bbox centre
-  // is guaranteed to sit inside the rendered geometry for every
-  // convex/quasi-convex shape AutoNest packs (rect, circle, sector,
-  // trapezoid).
-  let labelX: number
-  let labelY: number
-  let labelDim: number
-  if (part.polygon && part.polygon.length >= 3) {
-    let minX = Infinity
-    let minY = Infinity
-    let maxX = -Infinity
-    let maxY = -Infinity
-    for (const pt of part.polygon) {
-      if (pt.x < minX) minX = pt.x
-      if (pt.y < minY) minY = pt.y
-      if (pt.x > maxX) maxX = pt.x
-      if (pt.y > maxY) maxY = pt.y
-    }
-    labelX = surfaceX + ((minX + maxX) / 2) * scale
-    labelY = surfaceY + ((minY + maxY) / 2) * scale
-    labelDim = Math.min(maxX - minX, maxY - minY) * scale
-  } else {
-    const pxX = surfaceX + part.x * scale
-    const pxY = surfaceY + part.y * scale
-    const pxW = part.width * scale
-    const pxH = part.height * scale
-    labelX = pxX + pxW / 2
-    labelY = pxY + pxH / 2
-    labelDim = Math.min(pxW, pxH)
-  }
+  // stock, where the parent clipPath swallows it). `partAabb` returns
+  // the polygon's bbox when present (post-rotation, stock-local) so
+  // its centre is guaranteed to sit inside the rendered geometry for
+  // every convex/quasi-convex shape AutoNest packs (rect, circle,
+  // sector, trapezoid). Falls back to the placement rect for shapes
+  // that don't carry a polygon.
+  const aabb = partAabb(part)
+  const labelX = surfaceX + (aabb.x + aabb.width / 2) * scale
+  const labelY = surfaceY + (aabb.y + aabb.height / 2) * scale
+  const labelDim = Math.min(aabb.width, aabb.height) * scale
 
   return (
     <g>

@@ -1124,6 +1124,64 @@ function partAabb(part: PlacedPart): { x: number; y: number; width: number; heig
   return { x: part.x, y: part.y, width: part.width, height: part.height }
 }
 
+/**
+ * Where to anchor the part's tag label, in stock-local inches.
+ *
+ * Returns the polygon's area-weighted centroid when a polygon is
+ * present, falling back to the placement-rect centre otherwise. The
+ * centroid (vs. the bbox / hull centre) keeps the tag inside the
+ * actual filled silhouette for concave parts — most importantly the
+ * 150° annular sector, whose bbox centre falls in the inner-arc
+ * hole. `minDim` mirrors the bbox min dimension (not a centroid-to-
+ * edge distance) so font sizing stays proportional to the visual
+ * footprint.
+ */
+function partLabelCenter(part: PlacedPart): { x: number; y: number; minDim: number } {
+  const aabb = partAabb(part)
+  const minDim = Math.min(aabb.width, aabb.height)
+  if (part.polygon && part.polygon.length >= 3) {
+    const c = polygonCentroid(part.polygon)
+    return { x: c.x, y: c.y, minDim }
+  }
+  return { x: part.x + part.width / 2, y: part.y + part.height / 2, minDim }
+}
+
+/**
+ * Area-weighted centroid of a simple polygon. CCW or CW input is
+ * fine — the signed-area term cancels with the moment terms. For
+ * degenerate polygons (zero signed area: collinear or duplicated
+ * vertices) falls back to the vertex average so callers always get a
+ * usable point.
+ */
+function polygonCentroid(points: ReadonlyArray<{ x: number; y: number }>): {
+  x: number
+  y: number
+} {
+  let cx = 0
+  let cy = 0
+  let area2 = 0
+  const n = points.length
+  for (let i = 0; i < n; i++) {
+    const p0 = points[i]
+    const p1 = points[(i + 1) % n]
+    const cross = p0.x * p1.y - p1.x * p0.y
+    area2 += cross
+    cx += (p0.x + p1.x) * cross
+    cy += (p0.y + p1.y) * cross
+  }
+  if (Math.abs(area2) < 1e-9) {
+    let ax = 0
+    let ay = 0
+    for (const p of points) {
+      ax += p.x
+      ay += p.y
+    }
+    return { x: ax / n, y: ay / n }
+  }
+  const factor = 1 / (3 * area2)
+  return { x: cx * factor, y: cy * factor }
+}
+
 function PartShape({
   part,
   layout,
@@ -1135,20 +1193,20 @@ function PartShape({
 }) {
   const { surfaceX, surfaceY, scale } = layout
 
-  // Label position. Prefer the polygon bbox centre — `part.x`/`part.y`
-  // come from `rf_layout::Placement` which stores the jagua rotation-
-  // origin translation, NOT the bbox top-left under rotation. Using
-  // them directly puts the tag outside the shape (or outside the
-  // stock, where the parent clipPath swallows it). `partAabb` returns
-  // the polygon's bbox when present (post-rotation, stock-local) so
-  // its centre is guaranteed to sit inside the rendered geometry for
-  // every convex/quasi-convex shape AutoNest packs (rect, circle,
-  // sector, trapezoid). Falls back to the placement rect for shapes
-  // that don't carry a polygon.
-  const aabb = partAabb(part)
-  const labelX = surfaceX + (aabb.x + aabb.width / 2) * scale
-  const labelY = surfaceY + (aabb.y + aabb.height / 2) * scale
-  const labelDim = Math.min(aabb.width, aabb.height) * scale
+  // Label position: polygon centroid (area-weighted), NOT the bbox /
+  // hull centre. For concave shapes whose bbox centre lands outside
+  // the polygon — a 150° annular sector's bbox centre falls in the
+  // inner-arc hole, outside the cone silhouette — the centroid sits
+  // inside the actual filled region. Convex shapes (rect, circle,
+  // ellipse, trapezoid, triangle, ngon) keep getting their geometric
+  // centre, indistinguishable from bbox centre for rect-aligned
+  // shapes. Font size still keys off the bbox min dimension so the
+  // tag scales with the visual footprint, not the centroid's
+  // distance to the nearest edge.
+  const center = partLabelCenter(part)
+  const labelX = surfaceX + center.x * scale
+  const labelY = surfaceY + center.y * scale
+  const labelDim = center.minDim * scale
 
   return (
     <g>

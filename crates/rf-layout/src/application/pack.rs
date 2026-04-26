@@ -484,6 +484,55 @@ mod tests {
     }
 
     #[test]
+    fn auto_fill_overallocation_skips_empty_bins() {
+        // The frontend auto-fill bin allocator over-allocates by ~1.54×
+        // (1/PACKING_EFFICIENCY_FLOOR). 10 declared bins where parts
+        // comfortably fit in ~2 should run fast; this proves the empty
+        // bins jagua creates are essentially free.
+        let mut bins = Vec::with_capacity(10);
+        for i in 0..10 {
+            bins.push(bin(&format!("b{i}"), 20.0, 20.0));
+        }
+        let req = PackRequest {
+            bins,
+            clearance: 0.125,
+            // 8 small parts, each 5×5 — easily 16 per 20×20 bin, so all
+            // 8 fit in bin 0; bins 1..9 stay empty.
+            items: vec![rect_part("rect-a", 8, 5.0, 5.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+        };
+        let start = std::time::Instant::now();
+        let result = pack(req).unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(result.placed_count, 8);
+        assert_eq!(result.overflow_count, 0);
+        // 2s ceiling sized for debug builds; release is well under
+        // 100ms. Empty bins fall out of the per-bin loop with zero
+        // placements.
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "over-allocation should be cheap; got {elapsed:?}"
+        );
+        let bins_with_placements: std::collections::HashSet<String> =
+            result.placements.iter().map(|p| p.bin_id.clone()).collect();
+        assert!(
+            bins_with_placements.len() <= 2,
+            "8 parts of 5x5 should fit in 1-2 bins; saw {} bins used",
+            bins_with_placements.len()
+        );
+    }
+
+    #[test]
     fn multi_bin_overflow_rollover() {
         let req = PackRequest {
             bins: vec![bin("b1", 20.0, 10.0), bin("b2", 20.0, 10.0)],

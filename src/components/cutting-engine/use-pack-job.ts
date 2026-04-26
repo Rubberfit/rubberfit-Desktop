@@ -201,7 +201,21 @@ export function usePackJob({
         const next = packResultToLayoutModel(result, request, templates, {
           tagByShapeId,
         })
-        setLayouts(next)
+        // Filter empty bins. The auto-fill allocator deliberately
+        // over-allocates (~1.54×) so jagua never starves; the empties
+        // shouldn't reach the visualizer as blank "Sheet N of M" cards.
+        const nonEmpty = next.filter((m) => m.placedCount > 0)
+        // Rust reports overflow as a single job-level count. Attach it
+        // to the last surviving layout so the visualizer's existing
+        // partsOverflow accumulator and AutoNest's overflow toast both
+        // see it. The adapter sets overflowCount: 0 on every layout to
+        // preserve its 1-bin → 1-LayoutModel contract; this is where
+        // the job-level total enters the visible model.
+        if (nonEmpty.length > 0 && result.overflowCount > 0) {
+          const last = nonEmpty.length - 1
+          nonEmpty[last] = { ...nonEmpty[last], overflowCount: result.overflowCount }
+        }
+        setLayouts(nonEmpty)
         setIsPacking(false)
       } catch (err) {
         if (runIdRef.current !== runId) return

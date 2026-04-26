@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -28,6 +28,12 @@ import {
   getDefaultCutDirection,
   parseCutRatios,
 } from "@/components/cutting-engine/cut-planner-utils"
+import { strategyFor } from "@/components/cutting-engine/bin-allocation-strategy"
+import {
+  MAX_SHEETS,
+  estimateSheetCount,
+  estimateTotalPartAreaSqIn,
+} from "@/components/cutting-engine/auto-fill-bin-allocator"
 import { buildCutPdf } from "@/components/cutting-engine/cut-history-pdf"
 import type { LayoutModel } from "@/components/cutting-engine/layout-model"
 import { usePackJob } from "@/components/cutting-engine/use-pack-job"
@@ -306,19 +312,24 @@ export function AutoNestPage() {
     [selectedTemplates, tagByTemplateId]
   )
 
-  // One bin per stock sheet. Phase A's pack_lbf_lns processes a
-  // single-bin request directly; multi-bin (overflow → next sheet)
-  // can be wired by extending this array later.
+  // Auto-fill multi-sheet packing. The allocator estimates sheet count
+  // from total part area / sheet area × SAFETY_FACTOR (≈1.54×), then
+  // emits N identical Bin entries that jagua-rs's BPInstance packs in
+  // one shot. Empty bins cost microseconds and are filtered out
+  // downstream in usePackJob before the visualizer sees them. When the
+  // initial estimate under-allocates, the auto-boost effect below adds
+  // more sheets and re-packs silently — overflow never reaches the UI
+  // unless the packer can't fit everything within MAX_SHEETS.
+  const allocator = useMemo(() => strategyFor("autoFill"), [])
+  const [autoBoost, setAutoBoost] = useState(0)
   const packBins = useMemo<Bin[]>(
-    () => [
-      {
-        binId: "stock-1",
-        width: stock.width,
-        height: stock.length,
-        kind: "fresh",
-      },
-    ],
-    [stock.width, stock.length]
+    () =>
+      allocator.allocate({
+        stock,
+        templates: selectedTemplates,
+        manualBoost: autoBoost,
+      }),
+    [allocator, stock, selectedTemplates, autoBoost]
   )
 
   // Drive the Rust pack only when the gate has flipped to "done".
@@ -354,10 +365,48 @@ export function AutoNestPage() {
   // (usePackJob owns the layouts state; it stops returning fresh data
   // once `enabled` flips to false on the next render.) The operator
   // must press Pack again to recompute.
+  // capToastFiredRef gates the "couldn't fit" toast so we only warn
+  // once per cap-out, not on every re-render. Reset alongside autoBoost
+  // when templates/stock change so the next job starts fresh.
+  const capToastFiredRef = useRef(false)
   useEffect(() => {
     invalidate()
     setCutMetrics(null)
+    setAutoBoost(0)
+    capToastFiredRef.current = false
   }, [selectedTemplates, stock, cutDirection, customCutRatios, conePackingMode, invalidate])
+
+  // Auto-boost. If the initial heuristic under-allocates, silently add
+  // the missing sheets and re-pack until everything fits. When we hit
+  // MAX_SHEETS with overflow remaining, the packer genuinely couldn't
+  // fit everything — surface that as a one-time toast so the operator
+  // knows the result is incomplete. (Future: same toast when overflow
+  // exceeds a user-defined sheet cap once fixed-count mode lands.)
+  useEffect(() => {
+    const totalOverflow = layouts.reduce((s, l) => s + l.overflowCount, 0)
+    if (totalOverflow === 0) return
+    if (packBins.length >= MAX_SHEETS) {
+      if (!capToastFiredRef.current) {
+        toast.warning(
+          `${totalOverflow} part${totalOverflow === 1 ? "" : "s"} couldn't fit on ${MAX_SHEETS} sheets`,
+          {
+            description: "Reduce part count, use larger stock, or split the job.",
+          }
+        )
+        capToastFiredRef.current = true
+      }
+      return
+    }
+    const totalRequestedArea = estimateTotalPartAreaSqIn(selectedTemplates)
+    const totalRequestedQty = selectedTemplates.reduce((s, t) => s + Math.max(1, t.quantity), 0)
+    const avgPartArea = totalRequestedQty > 0 ? totalRequestedArea / totalRequestedQty : 0
+    const overflowArea = totalOverflow * avgPartArea
+    const additionalSheets = Math.max(
+      1,
+      estimateSheetCount(overflowArea, stock.width, stock.length) - 1
+    )
+    setAutoBoost((b) => b + additionalSheets)
+  }, [layouts, selectedTemplates, stock.width, stock.length, packBins.length])
 
   const totalRequestedCuts = useMemo(
     () => selectedTemplates.reduce((sum, t) => sum + Math.max(1, t.quantity), 0),

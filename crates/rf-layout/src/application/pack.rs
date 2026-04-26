@@ -484,6 +484,57 @@ mod tests {
     }
 
     #[test]
+    fn wall_flush_placements_stay_in_original_bin_bounds() {
+        // After the wall-flush change (jagua_adapter expands bin by
+        // clearance + snapshot_to_placements shifts by -clearance),
+        // every placement polygon must stay within [0, W] × [0, H] of
+        // the ORIGINAL bin — not the expanded one. This catches a
+        // misapplied shift (e.g., wrong sign, doubled, missed).
+        let req = PackRequest {
+            bins: vec![bin("b1", 24.0, 24.0)],
+            clearance: 0.125,
+            items: vec![rect_part("rect-a", 4, 6.0, 6.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+        };
+        let result = pack(req).unwrap();
+        assert!(result.placed_count > 0, "at least some parts must place");
+        for p in &result.placements {
+            for v in &p.polygon {
+                assert!(
+                    v.x >= -1e-6,
+                    "polygon vertex {:?} has x < 0 (shift bug?)",
+                    v
+                );
+                assert!(
+                    v.y >= -1e-6,
+                    "polygon vertex {:?} has y < 0 (shift bug?)",
+                    v
+                );
+                assert!(
+                    v.x <= 24.0 + 1e-6,
+                    "polygon vertex {:?} has x > bin width (shift bug?)",
+                    v
+                );
+                assert!(
+                    v.y <= 24.0 + 1e-6,
+                    "polygon vertex {:?} has y > bin height (shift bug?)",
+                    v
+                );
+            }
+        }
+    }
+
+    #[test]
     fn auto_fill_overallocation_skips_empty_bins() {
         // The frontend auto-fill bin allocator over-allocates by ~1.54×
         // (1/PACKING_EFFICIENCY_FLOOR). 10 declared bins where parts

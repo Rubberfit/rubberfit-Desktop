@@ -57,6 +57,7 @@ const DEMO_STOCK: StockConfig = {
   length: 48,
   material: "",
   thickness: 0.5,
+  kerf: 0.125,
 }
 
 // Desktop has no DB-backed material catalog yet. Empty array keeps
@@ -341,7 +342,7 @@ export function AutoNestPage() {
   } = usePackJob({
     bins: packBins,
     parts: packParts,
-    clearance: 0.125,
+    clearance: stock.kerf,
     templates: selectedTemplates,
     tagByShapeId: tagByTemplateId,
     enabled: packStatus === "done",

@@ -27,7 +27,7 @@ use crate::application::{
     PolishConfig,
 };
 use crate::domain::{Bin, BinResult, PackError, PackRequest, PackResult, Placement};
-use crate::infrastructure::jagua_adapter::to_jagua_instance;
+use crate::infrastructure::jagua_adapter::{shift_dtransformation, to_jagua_instance};
 use crate::infrastructure::search::cancel;
 use crate::infrastructure::search::gls::explore::{
     exploration_phase, ExplorationConfig, ExplorationOutcome,
@@ -687,10 +687,16 @@ fn rebuild_pack_result(
     );
     let cone_packing_mode = request.cone_packing_mode.unwrap_or_default();
 
+    let shift = -request.clearance as f32;
     for pi in entries {
         let item = instance.item(pi.item_id);
         let pre_transf = &item.shape_orig.pre_transform;
-        let abs_transf = int_to_ext_transformation(&pi.d_transf, pre_transf);
+        // Shift back into original-bin coords (mirror snapshot_to_placements).
+        let abs_transf = shift_dtransformation(
+            &int_to_ext_transformation(&pi.d_transf, pre_transf),
+            shift,
+            shift,
+        );
 
         let part = &request.items[pi.item_id];
         let pack_polygon: Vec<Point2D> = part

@@ -16,7 +16,7 @@
 // bench data and why LBF was missed in prior sparrow research rounds.
 
 use crate::domain::{BinResult, PackError, PackRequest, PackResult, Placement};
-use crate::infrastructure::jagua_adapter::to_jagua_instance;
+use crate::infrastructure::jagua_adapter::{shift_dtransformation, to_jagua_instance};
 use jagua_rs::entities::{Instance, LayoutSnapshot, PlacedItem};
 use jagua_rs::geometry::DTransformation;
 use jagua_rs::io::export::int_to_ext_transformation;
@@ -184,6 +184,7 @@ pub fn pack_lbf_with_config(
                 &bin.bin_id,
                 request.cone_strategy.unwrap_or_default(),
                 request.cone_packing_mode.unwrap_or_default(),
+                request.clearance,
             );
 
             for p in placements_this_bin {
@@ -322,6 +323,7 @@ fn snapshot_to_placements(
     bin_id: &str,
     cone_strategy_kind: crate::application::cone_strategy::ConeStrategyKind,
     cone_packing_mode: crate::application::cone_strategy::ConePackingMode,
+    clearance: f64,
 ) -> Vec<Placement> {
     let mut entries: Vec<&PlacedItem> = snap.placed_items.values().collect();
     entries.sort_by_key(|pi| {
@@ -338,10 +340,19 @@ fn snapshot_to_placements(
     let cone_strategy = crate::application::cone_strategy::cone_strategy_for(cone_strategy_kind);
 
     let mut placements = Vec::with_capacity(entries.len());
+    let shift = -clearance as f32;
     for pi in entries {
         let item = instance.item(pi.item_id);
         let pre_transf = &item.shape_orig.pre_transform;
-        let abs_transf = int_to_ext_transformation(&pi.d_transf, pre_transf);
+        // Shift translation back into original-bin coords. `build_ext_bin`
+        // expanded the bin by `clearance` on every side; subtracting
+        // `clearance` here puts placements where the visualizer + free-space
+        // extractor expect them (origin (0,0), bounds (W, H)).
+        let abs_transf = shift_dtransformation(
+            &int_to_ext_transformation(&pi.d_transf, pre_transf),
+            shift,
+            shift,
+        );
 
         let part = &items[pi.item_id];
         let pack_polygon: Vec<Point2D> = part

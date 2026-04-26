@@ -80,6 +80,16 @@ export interface LayoutModel {
 
   parts: PlacedPart[]
   offcuts: LayoutRegion[]
+  /**
+   * Bin-wide free-space polygons (`BinResult.freeRegions`) — the
+   * Rust-side `stock − parts` boolean diff, CCW-wound. AutoNest paints
+   * each as the red waste pattern with placed parts AND reusable
+   * offcut rects punched out as evenodd holes. Painting the whole
+   * residual (not just the inscribed scrap rects) keeps the visual
+   * waste coverage consistent with the displayed `scrapAreaSqFt`
+   * total; the evenodd punch on amber rects prevents the original
+   * sub-grid red rim that drove the previous rect-only rendering.
+   */
   scrap: LayoutRegion[]
 
   /**

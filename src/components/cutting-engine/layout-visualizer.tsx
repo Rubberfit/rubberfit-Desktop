@@ -642,16 +642,22 @@ function SheetSvg({
           strokeWidth="2"
         />
         <g clipPath={`url(#${clipId})`}>
-          {/* Scrap polygons (irregular waste shapes — painted first so amber offcuts overlay on top). */}
-          {model.scrap.map((region, i) => (
-            <RegionShape
-              key={`scrap-${i}`}
-              region={region}
-              fill={`url(#${wasteId})`}
-              layout={layout}
-              cutouts={model.parts}
-            />
-          ))}
+          {/* Scrap layer — combines every `BinResult.freeRegions`
+              polygon (one outer + one hole-reversed per placed part)
+              into a single evenodd path, with reusable amber rects
+              added as cutout subpaths. evenodd correctly resolves the
+              shape: the outer paints the bin red, hole-reverseds cancel
+              cone interiors (point in cone counted twice → not filled),
+              offcut cutouts cancel reusable rect areas (point in offcut
+              flips count → not filled). The chord-vs-arc gap, sub-cell
+              residual, and post-iteration leftover all paint as red,
+              matching the displayed `scrapAreaSqFt` total. */}
+          <ScrapLayer
+            regions={model.scrap}
+            offcuts={model.offcuts}
+            fill={`url(#${wasteId})`}
+            layout={layout}
+          />
           {/* Reusable offcuts (amber). Each gets its W × L printed at
               the centre so the operator can size the leftover at a glance. */}
           {model.offcuts.map((region, i) => (
@@ -743,6 +749,80 @@ function SheetSvg({
   )
 }
 
+// ── Scrap layer (combined evenodd) ────────────────────────────────────────
+
+/**
+ * Renders the bin's entire scrap coverage as ONE SVG path with
+ * `fill-rule="evenodd"`, combining every `BinResult.freeRegions`
+ * polygon plus the reusable offcut rects as cutout subpaths.
+ *
+ * Why one combined path (and not per-polygon `RegionShape` calls):
+ * the rf-geom Clipper wrapper splits "stock − parts" into separate
+ * positive-CCW polygons — one outer (the bin) plus one hole-reversed
+ * per placed part. Painted independently, the outer would fill the
+ * whole bin red and each hole-reversed would also fill its part's
+ * area red. Per-polygon evenodd cancellation requires every polygon
+ * to know which cutouts apply to it, which breaks for concave parts
+ * whose bbox centre falls outside their polygon (e.g. a 150° annular
+ * sector — the inner-arc hole swallows the bbox centre, so a
+ * point-in-polygon containment test misses the part itself).
+ *
+ * Combining everything into one evenodd path side-steps that: the
+ * rule simply counts how many contours a horizontal ray crosses.
+ *   - Inside the bin, outside every cone, outside every offcut:
+ *     outer=1, holes=0, offcuts=0 → 1 → filled red. ✓
+ *   - Inside a cone interior: outer=1, that cone's hole-reversed=1,
+ *     others=0, offcuts=0 → 2 → not filled. ✓
+ *   - Inside an offcut (outside cones): outer=1, holes=0,
+ *     offcut=1 → 2 → not filled. ✓
+ *   - Outside the bin: 0 → not filled. ✓
+ *
+ * Stroke is intentionally omitted — a stroke on the combined contour
+ * would trace every polygon AND every cutout, drawing red lines
+ * along the cone silhouettes and offcut edges. The faint
+ * anti-aliased seam against the underlying stock pattern is the
+ * accepted tradeoff (matches prior single-polygon behaviour).
+ */
+function ScrapLayer({
+  regions,
+  offcuts,
+  fill,
+  layout,
+}: {
+  regions: ReadonlyArray<LayoutRegion>
+  offcuts: ReadonlyArray<LayoutRegion>
+  fill: string
+  layout: SheetLayout
+}) {
+  if (regions.length === 0) return null
+  const tx = (x: number) => layout.surfaceX + x * layout.scale
+  const ty = (y: number) => layout.surfaceY + y * layout.scale
+
+  const segments: string[] = []
+  for (const r of regions) {
+    if (r.polygon && r.polygon.length >= 3) {
+      segments.push(polygonToPathSegment(r.polygon, tx, ty))
+    } else if (r.width > 0 && r.height > 0) {
+      // Defensive fallback for any region that arrives without a
+      // polygon — paint its bbox.
+      const x0 = tx(r.x)
+      const y0 = ty(r.y)
+      const x1 = tx(r.x + r.width)
+      const y1 = ty(r.y + r.height)
+      segments.push(`M ${x0} ${y0} L ${x1} ${y0} L ${x1} ${y1} L ${x0} ${y1} Z`)
+    }
+  }
+  for (const o of offcuts) {
+    const x0 = tx(o.x)
+    const y0 = ty(o.y)
+    const x1 = tx(o.x + o.width)
+    const y1 = ty(o.y + o.height)
+    segments.push(`M ${x0} ${y0} L ${x1} ${y0} L ${x1} ${y1} L ${x0} ${y1} Z`)
+  }
+
+  return <path d={segments.join(" ")} fill={fill} fillRule="evenodd" opacity="0.95" />
+}
+
 // ── Region renderer (offcut + scrap) ──────────────────────────────────────
 
 /**
@@ -772,6 +852,20 @@ const OFFCUT_PATTERN_BASE = "#fef3c7"
  * Rust side without losing hole topology, so we punch them out at
  * render time instead.
  */
+/**
+ * Anything axis-aligned with an optional polygon can act as a cutout.
+ * `PlacedPart` and `LayoutRegion` (e.g. reusable offcuts) both satisfy
+ * this — keeping the prop generic lets `SheetSvg` punch parts AND
+ * reusable rects out of the bin-wide scrap polygon in one pass.
+ */
+interface CutoutShape {
+  x: number
+  y: number
+  width: number
+  height: number
+  polygon?: ReadonlyArray<{ x: number; y: number }>
+}
+
 function RegionShape({
   region,
   fill,
@@ -783,7 +877,7 @@ function RegionShape({
   fill: string
   stroke?: string
   layout: SheetLayout
-  cutouts?: ReadonlyArray<PlacedPart>
+  cutouts?: ReadonlyArray<CutoutShape>
 }) {
   const transformX = (x: number) => layout.surfaceX + x * layout.scale
   const transformY = (y: number) => layout.surfaceY + y * layout.scale
@@ -809,7 +903,7 @@ function RegionShape({
       )
     }
     const cutoutPaths = overlappingCutouts
-      .map((c) => polygonToPathSegment(c.polygon!, transformX, transformY))
+      .map((c) => cutoutToPathSegment(c, transformX, transformY))
       .join(" ")
     return (
       <>
@@ -921,31 +1015,53 @@ function polygonToPathSegment(
 
 function cutoutsOverlapping(
   region: LayoutRegion,
-  cutouts: ReadonlyArray<PlacedPart>
-): PlacedPart[] {
+  cutouts: ReadonlyArray<CutoutShape>
+): CutoutShape[] {
   const r = polygonBbox(region.polygon!)
-  return cutouts.filter((c) => {
-    if (!c.polygon || c.polygon.length < 3) return false
-    const cb = polygonBbox(c.polygon)
-    return bboxesOverlap(r, cb)
-  })
+  return cutouts.filter((c) => bboxesOverlap(r, cutoutBbox(c)))
 }
 
 function cutoutsOverlappingRect(
   region: LayoutRegion,
-  cutouts: ReadonlyArray<PlacedPart>
-): PlacedPart[] {
+  cutouts: ReadonlyArray<CutoutShape>
+): CutoutShape[] {
   const r = {
     minX: region.x,
     minY: region.y,
     maxX: region.x + region.width,
     maxY: region.y + region.height,
   }
-  return cutouts.filter((c) => {
-    if (!c.polygon || c.polygon.length < 3) return false
-    const cb = polygonBbox(c.polygon)
-    return bboxesOverlap(r, cb)
-  })
+  return cutouts.filter((c) => bboxesOverlap(r, cutoutBbox(c)))
+}
+
+function cutoutBbox(c: CutoutShape): {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+} {
+  if (c.polygon && c.polygon.length >= 3) return polygonBbox(c.polygon)
+  return {
+    minX: c.x,
+    minY: c.y,
+    maxX: c.x + c.width,
+    maxY: c.y + c.height,
+  }
+}
+
+function cutoutToPathSegment(
+  c: CutoutShape,
+  transformX: (x: number) => number,
+  transformY: (y: number) => number
+): string {
+  if (c.polygon && c.polygon.length >= 3) {
+    return polygonToPathSegment(c.polygon, transformX, transformY)
+  }
+  const x0 = transformX(c.x)
+  const y0 = transformY(c.y)
+  const x1 = transformX(c.x + c.width)
+  const y1 = transformY(c.y + c.height)
+  return `M ${x0} ${y0} L ${x1} ${y0} L ${x1} ${y1} L ${x0} ${y1} Z`
 }
 
 function polygonBbox(polygon: ReadonlyArray<{ x: number; y: number }>): {

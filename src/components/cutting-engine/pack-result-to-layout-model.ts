@@ -72,24 +72,31 @@ export function packResultToLayoutModel(
     const offcuts: LayoutRegion[] =
       binResult?.offcuts.filter((o) => o.kind === "reusable").map(offcutToRegion) ?? []
 
-    // Scrap = inscribed rects classified as Scrap (below the reusable
-    // threshold) from the Rust `extract_offcuts_with_obstacles` pass.
-    // Earlier this was the bin-wide `freeRegions` polygon, but that
-    // painted the entire `stock − parts` area red and relied on the
-    // amber offcut rects to visually cover the reusable portion. The
-    // offcut rects are quantized to the Rust 0.25" grid sampler,
-    // which leaves a sub-quarter-inch residual sliver between each
-    // rect and the exact freeRegion polygon edge. That sliver
-    // rendered as a misleading red rim around every reusable offcut
-    // and along the sheet perimeter. Switching to the rect list
-    // drops the residual entirely — those slivers fall back to the
-    // stock pattern, and only meaningful scrap chunks stay red.
+    // Scrap = bin-wide free-region polygons (`stock − parts` from the
+    // Rust boolean diff). The visualizer paints these red with placed
+    // parts AND reusable amber rects punched out via SVG evenodd, so
+    // the painted red coverage matches the displayed `scrapAreaSqFt`
+    // total — every chord-vs-arc gap, sub-cell quantization residual,
+    // and post-iteration leftover that the inscribed-rect classifier
+    // couldn't carve into a Scrap-classified rect now renders as red
+    // instead of falling back to the stock pattern.
+    //
+    // The earlier rect-only path was introduced to avoid a sub-grid
+    // red rim around reusable amber rects (caused by the rect's
+    // 0.25"-quantized edge sitting inside the polygon's exact edge,
+    // leaving a sliver of the polygon visible around every amber
+    // rect). Punching the amber rects out via evenodd makes the
+    // scrap polygon truly absent inside each rect — there's nothing
+    // left to leak around the edges.
     const scrap: LayoutRegion[] =
+      binResult?.freeRegions.map(polygonPointsToRegion) ?? []
+    // Inscribed scrap rects retained as a SEPARATE field for the
+    // "Show inscribed rects" debug toggle. These are the rectangles
+    // `extract_offcuts_with_obstacles` classified below the reusable
+    // threshold; the dashed dark-red outline on top of the red fill
+    // shows what the histogram + monotonic-stack extractor saw.
+    const debugScrapRects: LayoutRegion[] =
       binResult?.offcuts.filter((o) => o.kind === "scrap").map(offcutToRegion) ?? []
-    // debugScrapRects mirrors scrap now — kept so the existing
-    // "Show inscribed rects" debug toggle in AutoNest still draws
-    // its dashed outline on top of the red fill.
-    const debugScrapRects: LayoutRegion[] = scrap
 
     const usedSqFt = (binResult?.usedArea ?? 0) / 144
     // Reusable area = sum of reusable offcut bboxes, capped at the
@@ -170,6 +177,34 @@ function placementToPlacedPart(
 
 function offcutToRegion(o: ClassifiedOffcut): LayoutRegion {
   return { x: o.x, y: o.y, width: o.width, height: o.height }
+}
+
+/**
+ * Wraps a `BinResult.freeRegions` polygon (raw Point2D[]) in a
+ * `LayoutRegion`. The bbox fields (`x/y/width/height`) are kept
+ * populated so existing consumers that read those (e.g.
+ * `OffcutLabel`, the PDF exporter) don't break; the polygon points
+ * are stored on `region.polygon` so `RegionShape` paints the exact
+ * `stock − parts` boundary, not its bbox.
+ */
+function polygonPointsToRegion(points: Array<{ x: number; y: number }>): LayoutRegion {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const p of points) {
+    if (p.x < minX) minX = p.x
+    if (p.y < minY) minY = p.y
+    if (p.x > maxX) maxX = p.x
+    if (p.y > maxY) maxY = p.y
+  }
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(0, maxX - minX),
+    height: Math.max(0, maxY - minY),
+    polygon: points,
+  }
 }
 
 // Generates A, B, C, …, Z, AA, AB, … from a 0-indexed counter — same

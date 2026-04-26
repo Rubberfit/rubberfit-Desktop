@@ -45,7 +45,14 @@ export type GrainAxis = "width" | "length" | "none"
 export interface Part {
   shapeId: string
   quantity: number
-  polygon: Point2D[]
+  /**
+   * Pre-built polygon vertices in part-local coords. Optional —
+   * when omitted, the Rust pack pipeline materialises the polygon
+   * from `shapeSpec` (currently only `kind: "sector"` cones are
+   * spec-only; every other shape still ships its polygon from TS
+   * via `buildPart`). See `crates/rf-layout/src/application/cone_strategy.rs`.
+   */
+  polygon?: Point2D[]
   shapeSpec?: ShapeSpec | null
   allowRotation: boolean
   grainAxis?: GrainAxis | null
@@ -74,6 +81,20 @@ export type PackMode = "fast" | "balanced" | "thorough"
 // caller sends it.
 export type PackEngine = "default" | "lbf" | "legacy"
 
+/**
+ * Render strategy for cone (sector) shapes. Mirrors
+ * `ConeStrategyKind` in `crates/rf-layout/src/application/cone_strategy.rs`.
+ *
+ * - `convexWedge`: cones display as solid wedges (cheaper, slight
+ *   density loss vs nesting).
+ * - `annularSector`: cones display as the real annular crescent
+ *   (high-fidelity render of what the operator will cut).
+ *
+ * Both strategies pack against the convex hull so jagua's collision
+ * surrogate is exact. Absent → Rust default (`annularSector`).
+ */
+export type ConeStrategy = "convexWedge" | "annularSector"
+
 export interface PackRequest {
   bins: Bin[]
   clearance: number
@@ -85,6 +106,7 @@ export interface PackRequest {
   improvementBudgetMs?: number | null
   seed?: number | null
   units?: UnitSystem
+  coneStrategy?: ConeStrategy
 }
 
 export interface Placement {
@@ -105,6 +127,16 @@ export interface Placement {
    * yield untagged placements (`undefined`).
    */
   tag?: string | null
+  /**
+   * Transformed pack polygon — the surface jagua actually collided
+   * on. Populated only when it differs from `polygon` (today: cones,
+   * where pack = convex hull but render = annular crescent). The
+   * visualizer paints this as a translucent overlay so operators
+   * can see jagua's "mental model" of the shape. Undefined for
+   * shapes where pack polygon == render polygon (rects, trapezoids,
+   * circles, ngons).
+   */
+  packPolygon?: Point2D[]
 }
 
 /**

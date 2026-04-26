@@ -24,7 +24,9 @@
 // (a) other fixtures may benefit, (b) it's a clean safety net that
 // never regresses (we accept moves only on strict improvement).
 
-use crate::application::polish::{polish_placements, PolishConfig};
+use crate::application::polish::{
+    placements_have_pack_surface_overlap, polish_placements, PolishConfig,
+};
 use crate::domain::{Bin, PackResult, Placement};
 use rf_geom::domain::Point2D;
 use std::collections::HashMap;
@@ -190,6 +192,11 @@ fn simulate_move_occupied(
     let src_bin = &bins[src_bin_idx];
     src_placements = polish_placements(&src_placements, src_bin.width, src_bin.height, polish_cfg);
     dst_placements = polish_placements(&dst_placements, dst_bin.width, dst_bin.height, polish_cfg);
+    if placements_have_pack_surface_overlap(&src_placements)
+        || placements_have_pack_surface_overlap(&dst_placements)
+    {
+        return None;
+    }
 
     // Compute new total occupied area across all bins. For untouched
     // bins, reuse the baseline occ_height (no change).
@@ -220,6 +227,7 @@ fn apply_move(
     candidate: &MoveCandidate,
     polish_cfg: &PolishConfig,
 ) -> PackResult {
+    let original = result.clone();
     let dst_id = bins[candidate.dst_bin_idx].bin_id.clone();
     let src_id = bins[candidate.src_bin_idx].bin_id.clone();
 
@@ -253,6 +261,12 @@ fn apply_move(
 
     // Rebuild the placements list (order doesn't matter â€” consumers
     // identify placements by bin_id and shape_id).
+    if placements_have_pack_surface_overlap(&src_polished)
+        || placements_have_pack_surface_overlap(&dst_polished)
+    {
+        return original;
+    }
+
     result.placements = src_polished
         .into_iter()
         .chain(dst_polished)
@@ -352,11 +366,17 @@ fn relocate_placement(src: &Placement, new_bin_id: &str, tx: f64, ty: f64) -> Pl
         .iter()
         .map(|v| Point2D::new(v.x + dx, v.y + dy))
         .collect::<Vec<_>>();
+    let pack_polygon = src.pack_polygon.as_ref().map(|poly| {
+        poly.iter()
+            .map(|v| Point2D::new(v.x + dx, v.y + dy))
+            .collect::<Vec<_>>()
+    });
     Placement {
         bin_id: new_bin_id.to_string(),
         x: src.x + dx,
         y: src.y + dy,
         polygon,
+        pack_polygon,
         ..src.clone()
     }
 }
@@ -418,6 +438,7 @@ mod tests {
             height: h,
             difficulty: None,
             tag: None,
+            pack_polygon: None,
         }
     }
 
@@ -518,6 +539,25 @@ mod tests {
             "bin A occupied_height should drop well below 50, got {}",
             a_occ
         );
+    }
+
+    #[test]
+    fn relocate_placement_keeps_pack_polygon_aligned() {
+        let mut p = rect_placement("cone", "A", 20.0, 30.0, 10.0, 10.0);
+        p.pack_polygon = Some(vec![
+            Point2D::new(20.0, 30.0),
+            Point2D::new(32.0, 30.0),
+            Point2D::new(32.0, 42.0),
+            Point2D::new(20.0, 42.0),
+        ]);
+
+        let moved = relocate_placement(&p, "B", 5.0, 7.0);
+
+        assert_eq!(moved.bin_id, "B");
+        assert_eq!(moved.polygon[0], Point2D::new(5.0, 7.0));
+        let hull = moved.pack_polygon.expect("test placement has pack hull");
+        assert_eq!(hull[0], Point2D::new(5.0, 7.0));
+        assert_eq!(hull[2], Point2D::new(17.0, 19.0));
     }
 
     #[test]

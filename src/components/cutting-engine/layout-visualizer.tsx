@@ -48,6 +48,13 @@ export interface LayoutVisualizerProps {
    * the same `LayoutModel` data the visualizer paints.
    */
   onLayoutChange?: (layouts: LayoutModel[]) => void
+  /**
+   * If true, draw each placed part's `packPolygon` (the convex hull
+   * jagua actually collided on) as a translucent dashed amber stroke
+   * on top of the rendered shape. Cone-only today; falsy/absent
+   * `packPolygon` is silently skipped per part.
+   */
+  showPackHullOverlay?: boolean
 }
 
 export default function LayoutVisualizer({
@@ -58,6 +65,7 @@ export default function LayoutVisualizer({
   packError,
   onMetricsChange,
   onLayoutChange,
+  showPackHullOverlay,
 }: LayoutVisualizerProps) {
   const patternSeed = useId().replace(/:/g, "")
   const sheets = layouts && layouts.length > 0 ? layouts : null
@@ -133,6 +141,7 @@ export default function LayoutVisualizer({
             sheetIndex={i}
             totalSheets={sheets.length}
             patternSeed={`${patternSeed}-s${i}`}
+            showPackHullOverlay={showPackHullOverlay}
           />
         ))}
       </div>
@@ -402,11 +411,13 @@ function SheetSvg({
   sheetIndex,
   totalSheets,
   patternSeed,
+  showPackHullOverlay,
 }: {
   layout: LayoutModel
   sheetIndex: number
   totalSheets: number
   patternSeed: string
+  showPackHullOverlay?: boolean
 }) {
   const layout = useMemo(
     () => computeSheetLayout(model.sheetWidth, model.sheetLength),
@@ -562,7 +573,12 @@ function SheetSvg({
           ))}
           {/* Placed parts. */}
           {model.parts.map((part, i) => (
-            <PartShape key={`part-${i}`} part={part} layout={layout} />
+            <PartShape
+              key={`part-${i}`}
+              part={part}
+              layout={layout}
+              showPackHullOverlay={showPackHullOverlay}
+            />
           ))}
         </g>
         <DimensionLabels
@@ -606,7 +622,15 @@ function RegionShape({
 
 // ── Part renderer ─────────────────────────────────────────────────────────
 
-function PartShape({ part, layout }: { part: PlacedPart; layout: SheetLayout }) {
+function PartShape({
+  part,
+  layout,
+  showPackHullOverlay,
+}: {
+  part: PlacedPart
+  layout: SheetLayout
+  showPackHullOverlay?: boolean
+}) {
   const { surfaceX, surfaceY, scale } = layout
 
   // Label position. Prefer the polygon bbox centre — `part.x`/`part.y`
@@ -649,6 +673,18 @@ function PartShape({ part, layout }: { part: PlacedPart; layout: SheetLayout }) 
   return (
     <g>
       {renderPartGeometry(part, layout)}
+      {showPackHullOverlay && part.packPolygon && part.packPolygon.length >= 3 && (
+        <polygon
+          points={part.packPolygon
+            .map((p) => `${surfaceX + p.x * scale},${surfaceY + p.y * scale}`)
+            .join(" ")}
+          fill="none"
+          stroke="rgba(245, 158, 11, 0.85)"
+          strokeWidth={1.5}
+          strokeDasharray="4 3"
+          style={{ pointerEvents: "none" }}
+        />
+      )}
       <text
         x={labelX}
         y={labelY}

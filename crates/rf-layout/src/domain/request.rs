@@ -51,7 +51,14 @@ pub struct Part {
     pub shape_id: String,
     #[serde(alias = "demand")]
     pub quantity: u32,
-    pub polygon: Vec<Point2D>,
+    /// Pre-built polygon vertices in part-local coords (CCW, normalized
+    /// so minX = minY = 0). Optional — when absent, the pack pipeline
+    /// materialises the polygon from `shape_spec` via
+    /// `application::cone_strategy::materialise_polygon`. Today only
+    /// `kind: "sector"` (cones) is constructed Rust-side; every other
+    /// shape still ships its polygon from TS.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub polygon: Option<Vec<Point2D>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shape_spec: Option<ShapeSpec>,
     pub allow_rotation: bool,
@@ -122,11 +129,30 @@ pub struct PackRequest {
     pub seed: Option<u64>,
     #[serde(default)]
     pub units: UnitSystem,
+    /// Strategy for cone (sector) polygon shape. None defaults to
+    /// `ConeStrategyKind::AnnularSector` (high-fidelity render). Lets
+    /// the caller A/B `convexWedge` vs `annularSector` without
+    /// rebuilding — see `application::cone_strategy`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub cone_strategy: Option<crate::application::cone_strategy::ConeStrategyKind>,
 }
 
 pub const FAST_MS: u64 = 2_000;
 pub const BALANCED_MS: u64 = 10_000;
 pub const THOROUGH_MS: u64 = 30_000;
+
+impl Part {
+    /// Borrow the materialised polygon. Panics if the polygon is
+    /// `None`. Pack pipelines call
+    /// `application::cone_strategy::materialise_request_polygons` at
+    /// entry, after which every part is guaranteed to have a polygon
+    /// — so downstream search/jagua code is free to assume it.
+    pub fn polygon_slice(&self) -> &[Point2D] {
+        self.polygon.as_deref().expect(
+            "Part.polygon was None — orchestrator must call materialise_request_polygons before passing parts to search/jagua code",
+        )
+    }
+}
 
 impl PackRequest {
     pub fn resolved_time_budget_ms(&self) -> u64 {
@@ -160,7 +186,7 @@ mod tests {
         assert_eq!(req.bins[0].bin_id, "b1");
         assert_eq!(req.items.len(), 1);
         assert_eq!(req.items[0].shape_id, "rect-a");
-        assert_eq!(req.items[0].polygon.len(), 4);
+        assert_eq!(req.items[0].polygon.as_ref().map(|p| p.len()), Some(4));
         assert_eq!(req.mode, Some(PackMode::Fast));
         assert_eq!(req.units, UnitSystem::Inch); // default
     }

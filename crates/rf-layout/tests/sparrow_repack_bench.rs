@@ -1,4 +1,4 @@
-﻿// engine/crates/rf-layout/tests/sparrow_repack_bench.rs
+// engine/crates/rf-layout/tests/sparrow_repack_bench.rs
 //
 // Sparrow fixed-bin repack spike bench â€” production 37-part fixture.
 //
@@ -76,12 +76,12 @@ fn production_items() -> Vec<Part> {
             shape_id: (*id).into(),
             quantity: *qty,
             // CSV "Width" â‰¤ bin.width (78"), "Length" runs up the long axis.
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(*width, 0.0),
                 Point2D::new(*width, *length),
                 Point2D::new(0.0, *length),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,

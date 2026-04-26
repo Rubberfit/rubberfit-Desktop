@@ -1,4 +1,4 @@
-﻿// engine/crates/rf-layout/tests/gls_integration.rs
+// engine/crates/rf-layout/tests/gls_integration.rs
 //
 // S2.5a Task 9 integration tests â€” property + timing coverage for the
 // explore->compress pipeline wired in Task 8.
@@ -51,12 +51,12 @@ fn rect_part(id: &str, qty: u32, w: f64, h: f64) -> Part {
     Part {
         shape_id: id.into(),
         quantity: qty,
-        polygon: vec![
+        polygon: Some(vec![
             Point2D::new(0.0, 0.0),
             Point2D::new(w, 0.0),
             Point2D::new(w, h),
             Point2D::new(0.0, h),
-        ],
+        ]),
         shape_spec: None,
         allow_rotation: false,
         grain_axis: None,
@@ -390,6 +390,7 @@ fn timing_fast_mode_under_ceiling() {
         improvement_budget_ms: None,
         seed: Some(42),
         units: Default::default(),
+        cone_strategy: None,
     };
     for f in fixtures() {
         let req = PackRequest {

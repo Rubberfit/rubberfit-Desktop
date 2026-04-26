@@ -274,6 +274,7 @@ mod tests {
             height: h,
             difficulty: None,
             tag: None,
+            pack_polygon: None,
         }
     }
 

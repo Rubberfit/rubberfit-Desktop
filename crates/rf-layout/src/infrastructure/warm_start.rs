@@ -1,4 +1,4 @@
-﻿// engine/crates/rf-layout/src/infrastructure/warm_start.rs
+// engine/crates/rf-layout/src/infrastructure/warm_start.rs
 use crate::domain::{Bin, PackError, Part};
 use rf_geom::domain::Point2D;
 
@@ -185,7 +185,7 @@ pub fn greedy_rectangle_pack_with_strategy(
     let mut rejected_overflow: u32 = 0;
 
     for part in items {
-        let bbox = rf_geom::application::bbox_of(&part.polygon).map_err(|source| {
+        let bbox = rf_geom::application::bbox_of(part.polygon_slice()).map_err(|source| {
             PackError::InvalidPolygon {
                 shape_id: part.shape_id.clone(),
                 source,
@@ -213,7 +213,7 @@ pub fn greedy_rectangle_pack_with_strategy(
                 h_scaled: (h * SCALE).round() as u32,
                 quantity: part.quantity,
                 polygon_canonical: part
-                    .polygon
+                    .polygon_slice()
                     .iter()
                     .map(|p| Point2D::new(p.x - bbox.0.x, p.y - bbox.0.y))
                     .collect(),
@@ -393,7 +393,7 @@ fn greedy_vertical_stack(
     let mut cursor_y = 0.0f64;
     let mut overflow: u32 = 0;
     for part in items {
-        let bbox = rf_geom::application::bbox_of(&part.polygon).map_err(|source| {
+        let bbox = rf_geom::application::bbox_of(part.polygon_slice()).map_err(|source| {
             PackError::InvalidPolygon {
                 shape_id: part.shape_id.clone(),
                 source,
@@ -423,7 +423,7 @@ fn greedy_vertical_stack(
                 y: y_visible,
                 rotation_rad: 0.0,
                 polygon: part
-                    .polygon
+                    .polygon_slice()
                     .iter()
                     .map(|p| Point2D::new(p.x - bbox.0.x + clearance, y_visible + (p.y - bbox.0.y)))
                     .collect(),
@@ -455,7 +455,7 @@ fn greedy_vertical_stack(
 ///
 /// Deterministic: pure arithmetic, row-major scan, no RNG.
 fn greedy_2d_grid(bin: &Bin, part: &Part, clearance: f64) -> Result<SeedResult, PackError> {
-    let bbox = rf_geom::application::bbox_of(&part.polygon).map_err(|source| {
+    let bbox = rf_geom::application::bbox_of(part.polygon_slice()).map_err(|source| {
         PackError::InvalidPolygon {
             shape_id: part.shape_id.clone(),
             source,
@@ -496,7 +496,7 @@ fn greedy_2d_grid(bin: &Bin, part: &Part, clearance: f64) -> Result<SeedResult, 
             y: y_visible,
             rotation_rad: 0.0,
             polygon: part
-                .polygon
+                .polygon_slice()
                 .iter()
                 .map(|p| Point2D::new(p.x - bbox.0.x + x_visible, y_visible + (p.y - bbox.0.y)))
                 .collect(),
@@ -520,12 +520,12 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: true,
             grain_axis: None,
@@ -656,12 +656,12 @@ mod tests {
         let offset_part = Part {
             shape_id: "offset".into(),
             quantity: 1,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(5.0, 3.0),
                 Point2D::new(15.0, 3.0),
                 Point2D::new(15.0, 8.0),
                 Point2D::new(5.0, 8.0),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: true,
             grain_axis: None,

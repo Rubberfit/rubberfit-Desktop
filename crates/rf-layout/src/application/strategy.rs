@@ -223,12 +223,12 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: true,
             grain_axis: None,
@@ -287,6 +287,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: Some(7),
             units: Default::default(),
+            cone_strategy: None,
         };
 
         let result = strategy_for(None)
@@ -320,6 +321,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: Some(7),
             units: Default::default(),
+            cone_strategy: None,
         };
 
         let result = strategy_for(None)

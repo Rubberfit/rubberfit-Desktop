@@ -1,4 +1,4 @@
-﻿// engine/crates/rf-layout/tests/cancel_progress_integration.rs
+// engine/crates/rf-layout/tests/cancel_progress_integration.rs
 //
 // Task 14 integration tests:
 //   - Pre-set cancel short-circuits immediately.
@@ -21,12 +21,12 @@ fn rect_part(id: &str, qty: u32, w: f64, h: f64) -> Part {
     Part {
         shape_id: id.into(),
         quantity: qty,
-        polygon: vec![
+        polygon: Some(vec![
             Point2D::new(0.0, 0.0),
             Point2D::new(w, 0.0),
             Point2D::new(w, h),
             Point2D::new(0.0, h),
-        ],
+        ]),
         shape_spec: None,
         allow_rotation: false,
         grain_axis: None,
@@ -69,6 +69,7 @@ fn long_budget_fixture() -> PackRequest {
         improvement_budget_ms: None,
         seed: Some(42),
         units: UnitSystem::default(),
+        cone_strategy: None,
     }
 }
 
@@ -163,6 +164,7 @@ fn no_cancel_token_completes_normally() {
         improvement_budget_ms: None,
         seed: Some(42),
         units: UnitSystem::default(),
+        cone_strategy: None,
     };
     let result_a = pack(req.clone()).expect("pack");
     let result_b = pack_with_options(req, SearchOptions::default()).expect("pack");

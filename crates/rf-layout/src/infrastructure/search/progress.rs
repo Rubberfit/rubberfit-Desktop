@@ -1,4 +1,4 @@
-﻿// engine/crates/rf-layout/src/infrastructure/search/progress.rs
+// engine/crates/rf-layout/src/infrastructure/search/progress.rs
 //
 // Task 14: progress streaming primitives.
 //
@@ -159,7 +159,7 @@ fn compute_progress_stats(assignment: &FfdAssignment, bins: &[Bin], items: &[Par
     let mut area_by_shape: std::collections::HashMap<&str, f64> =
         std::collections::HashMap::with_capacity(items.len());
     for p in items {
-        area_by_shape.insert(p.shape_id.as_str(), polygon_area(&p.polygon));
+        area_by_shape.insert(p.shape_id.as_str(), polygon_area(p.polygon_slice()));
     }
 
     let mut total_placed: u32 = 0;
@@ -211,12 +211,12 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,

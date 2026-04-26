@@ -53,6 +53,13 @@ export interface PlacedPart {
 
   /** Actual placed polygon vertices (inches, post-rotation). Present for non-rect shapes. */
   polygon?: Array<{ x: number; y: number }>
+  /**
+   * Optional debug overlay polygon — the convex hull jagua actually
+   * collided against. Populated only for cones (pack = convex hull,
+   * render = annular crescent). Visualizer draws as a translucent
+   * dashed stroke when "Show pack hull" is enabled.
+   */
+  packPolygon?: Array<{ x: number; y: number }>
   cutDirection?: SimpleCutDirection
   flipped?: boolean
   rotated90?: boolean

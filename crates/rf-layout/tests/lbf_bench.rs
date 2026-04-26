@@ -1,4 +1,4 @@
-﻿// engine/crates/rf-layout/tests/lbf_bench.rs
+// engine/crates/rf-layout/tests/lbf_bench.rs
 //
 // Empirical bench of jagua-rs's LBF reference BPP optimizer on REMA's
 // 37-part production fixture. Polygon-aware (handles irregular shapes
@@ -79,12 +79,12 @@ fn production_items(allow_rotation: bool) -> Vec<Part> {
         .map(|(qty, id, length, width)| Part {
             shape_id: (*id).into(),
             quantity: *qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(*width, 0.0),
                 Point2D::new(*width, *length),
                 Point2D::new(0.0, *length),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation,
             grain_axis: None,
@@ -197,6 +197,7 @@ fn pack_lbf_lns_vs_pack_lbf_on_production_fixture() {
         improvement_budget_ms: None,
         seed: Some(42),
         units: Default::default(),
+        cone_strategy: None,
     };
 
     println!(
@@ -280,6 +281,7 @@ fn pack_lbf_two_bin_fab_score_comparison() {
         improvement_budget_ms: None,
         seed: Some(42),
         units: Default::default(),
+        cone_strategy: None,
     };
 
     println!(
@@ -389,6 +391,7 @@ fn pack_lbf_vs_pack_on_production_fixture() {
         improvement_budget_ms: None,
         seed: Some(42),
         units: Default::default(),
+        cone_strategy: None,
     };
 
     println!(
@@ -457,7 +460,7 @@ fn lbf_on_irregular_trapezoid_fixture() {
     let trapezoid = |id: &str, qty: u32, vertices: &[(f64, f64)]| Part {
         shape_id: id.into(),
         quantity: qty,
-        polygon: vertices.iter().map(|(x, y)| Point2D::new(*x, *y)).collect(),
+        polygon: Some(vertices.iter().map(|(x, y)| Point2D::new(*x, *y)).collect()),
         shape_spec: None,
         allow_rotation: true,
         grain_axis: None,
@@ -563,7 +566,7 @@ fn lbf_on_irregular_cone_fixture() {
     let items = vec![Part {
         shape_id: "cone-a".into(),
         quantity: 4,
-        polygon: cone_vertices,
+        polygon: Some(cone_vertices),
         shape_spec: None,
         allow_rotation: true,
         grain_axis: None,

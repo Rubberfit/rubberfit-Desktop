@@ -84,9 +84,10 @@ pub fn pack_lbf_lns(request: PackRequest) -> Result<PackResult, PackError> {
 }
 
 pub fn pack_lbf_lns_with_config(
-    request: PackRequest,
+    mut request: PackRequest,
     cfg: PackLbfLnsConfig,
 ) -> Result<PackResult, PackError> {
+    crate::application::cone_strategy::materialise_request_polygons(&mut request)?;
     if request.bins.len() <= 1 {
         return pack_lbf_lns_single_bin(request, cfg);
     }
@@ -138,6 +139,7 @@ pub fn pack_lbf_lns_with_config(
             improvement_budget_ms: request.improvement_budget_ms,
             seed: request.seed,
             units: request.units,
+            cone_strategy: request.cone_strategy,
         };
 
         let sub_result = pack_lbf_lns_single_bin(sub_request, cfg.clone())?;
@@ -492,7 +494,9 @@ fn polish_pack_result(mut result: PackResult, bins: &[Bin], clearance: f64) -> P
         let polished = polish_placements(&bin_placements, bin.width, bin.height, &cfg);
         let post_score = polish_score(&polished, bin.width, bin.height);
 
-        let selected = if post_score.is_better_than(&pre_score) {
+        let selected = if post_score.is_better_than(&pre_score)
+            && !crate::application::polish::placements_have_pack_surface_overlap(&polished)
+        {
             polished
         } else {
             bin_placements
@@ -672,17 +676,39 @@ fn rebuild_pack_result(
         )
     });
 
+    let cone_strategy = crate::application::cone_strategy::cone_strategy_for(
+        request.cone_strategy.unwrap_or_default(),
+    );
+
     for pi in entries {
         let item = instance.item(pi.item_id);
         let pre_transf = &item.shape_orig.pre_transform;
         let abs_transf = int_to_ext_transformation(&pi.d_transf, pre_transf);
 
         let part = &request.items[pi.item_id];
-        let polygon: Vec<Point2D> = part
-            .polygon
+        let pack_polygon: Vec<Point2D> = part
+            .polygon_slice()
             .iter()
             .map(|p| apply_dtransformation_to_point(&abs_transf, *p))
             .collect();
+
+        // See pack_lbf::snapshot_to_placements for the equivalent
+        // dispatch logic and the rationale comment about transform
+        // identity between pack and render polygons.
+        let (polygon, placement_pack_polygon) =
+            match crate::application::cone_strategy::cone_dims_from_part(part) {
+                Some(d) => match cone_strategy.render_polygon_local(d) {
+                    Some(local) => {
+                        let render: Vec<Point2D> = local
+                            .iter()
+                            .map(|p| apply_dtransformation_to_point(&abs_transf, *p))
+                            .collect();
+                        (render, Some(pack_polygon))
+                    }
+                    None => (pack_polygon, None),
+                },
+                None => (pack_polygon, None),
+            };
 
         let (min_x, min_y, max_x, max_y) = polygon.iter().fold(
             (
@@ -706,6 +732,7 @@ fn rebuild_pack_result(
             height: (max_y - min_y).max(0.0),
             difficulty: None,
             tag: None,
+            pack_polygon: placement_pack_polygon,
         });
     }
 
@@ -848,12 +875,12 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: true,
             grain_axis: None,
@@ -884,6 +911,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: Some(42),
             units: Default::default(),
+            cone_strategy: None,
         }
     }
 

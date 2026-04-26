@@ -1,0 +1,112 @@
+use rf_geom::domain::Point2D;
+use rf_layout::application::strategy_for;
+use rf_layout::domain::{Bin, BinKind, PackMode, PackRequest, Part, Placement, ShapeSpec};
+use std::collections::HashMap;
+
+const EPS: f64 = 1e-7;
+
+fn auto_nest_cone_request() -> PackRequest {
+    let mut params = HashMap::new();
+    params.insert("innerRadius".into(), serde_json::json!(10.0));
+    params.insert("outerRadius".into(), serde_json::json!(28.0));
+    params.insert("arcDegrees".into(), serde_json::json!(120.0));
+
+    PackRequest {
+        bins: vec![Bin {
+            bin_id: "stock-1".into(),
+            width: 96.0,
+            height: 48.0,
+            kind: BinKind::Fresh,
+            priority: None,
+        }],
+        clearance: 0.125,
+        items: vec![Part {
+            shape_id: "cone-120".into(),
+            quantity: 4,
+            polygon: None,
+            shape_spec: Some(ShapeSpec {
+                kind: "sector".into(),
+                params,
+            }),
+            allow_rotation: true,
+            grain_axis: None,
+            difficulty: None,
+            tag: None,
+        }],
+        operator_profile: None,
+        mode: Some(PackMode::Fast),
+        engine: None,
+        time_budget_ms: Some(2_000),
+        improvement_budget_ms: None,
+        seed: Some(42),
+        units: Default::default(),
+        cone_strategy: None,
+    }
+}
+
+#[test]
+fn default_strategy_does_not_return_overlapping_auto_nest_cones() {
+    let result = strategy_for(None)
+        .pack(auto_nest_cone_request())
+        .expect("default strategy should pack AutoNest cone request");
+
+    assert_eq!(
+        result.placed_count, 4,
+        "regression fixture should place every requested cone"
+    );
+    assert!(
+        !placements_have_pack_surface_overlap(&result.placements),
+        "default strategy returned overlapping cone pack surfaces"
+    );
+}
+
+fn placements_have_pack_surface_overlap(placements: &[Placement]) -> bool {
+    for i in 0..placements.len() {
+        for j in (i + 1)..placements.len() {
+            if convex_polygons_overlap(surface(&placements[i]), surface(&placements[j])) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn surface(p: &Placement) -> &[Point2D] {
+    p.pack_polygon
+        .as_deref()
+        .filter(|poly| poly.len() >= 3)
+        .unwrap_or(&p.polygon)
+}
+
+fn convex_polygons_overlap(a: &[Point2D], b: &[Point2D]) -> bool {
+    if a.len() < 3 || b.len() < 3 {
+        return false;
+    }
+    !has_separating_axis(a, b) && !has_separating_axis(b, a)
+}
+
+fn has_separating_axis(a: &[Point2D], b: &[Point2D]) -> bool {
+    for i in 0..a.len() {
+        let p1 = a[i];
+        let p2 = a[(i + 1) % a.len()];
+        let axis = Point2D::new(-(p2.y - p1.y), p2.x - p1.x);
+        if axis.x.abs() <= EPS && axis.y.abs() <= EPS {
+            continue;
+        }
+        let (a_min, a_max) = project(a, axis);
+        let (b_min, b_max) = project(b, axis);
+        if a_max <= b_min + EPS || b_max <= a_min + EPS {
+            return true;
+        }
+    }
+    false
+}
+
+fn project(points: &[Point2D], axis: Point2D) -> (f64, f64) {
+    points
+        .iter()
+        .map(|p| p.x * axis.x + p.y * axis.y)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), d| {
+            (mn.min(d), mx.max(d))
+        })
+}

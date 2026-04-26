@@ -52,6 +52,15 @@ pub struct Placement {
     /// jagua-rs, or any geometric primitive.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tag: Option<String>,
+    /// Transformed pack polygon — the surface jagua actually
+    /// collided on. Populated only when it differs from `polygon`
+    /// (today: cones, where pack = convex hull but render = annular
+    /// crescent). The visualizer can paint this as a translucent
+    /// overlay so operators can see jagua's "mental model" of the
+    /// shape. None for every shape where pack polygon == render
+    /// polygon (rects, trapezoids, circles, ngons, …).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pack_polygon: Option<Vec<Point2D>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -156,6 +165,7 @@ mod tests {
             height: 1.0,
             difficulty: None,
             tag: None,
+            pack_polygon: None,
         };
         let json = serde_json::to_string(&p).unwrap();
         assert!(json.contains("\"rotationRad\":0.0"));

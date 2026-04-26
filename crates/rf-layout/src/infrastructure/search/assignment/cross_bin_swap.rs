@@ -1,4 +1,4 @@
-﻿// engine/crates/rf-layout/src/infrastructure/search/assignment/cross_bin_swap.rs
+// engine/crates/rf-layout/src/infrastructure/search/assignment/cross_bin_swap.rs
 //
 // Cross-bin swap operators. Fresh BPP-specific code â€” sparrow is SPP
 // (single-bin strip packing) and has no cross-bin primitives.
@@ -131,7 +131,7 @@ fn polygon_area(poly: &[rf_geom::domain::Point2D]) -> f64 {
 fn item_areas(items: &[Part]) -> HashMap<String, f64> {
     items
         .iter()
-        .map(|p| (p.shape_id.clone(), polygon_area(&p.polygon)))
+        .map(|p| (p.shape_id.clone(), polygon_area(p.polygon_slice())))
         .collect()
 }
 
@@ -185,7 +185,7 @@ fn shape_sort_keys(items: &[Part]) -> HashMap<String, (f64, f64)> {
     items
         .iter()
         .map(|p| {
-            let bbox = rf_geom::application::bbox_of(&p.polygon).unwrap_or((
+            let bbox = rf_geom::application::bbox_of(p.polygon_slice()).unwrap_or((
                 rf_geom::domain::Point2D::new(0.0, 0.0),
                 rf_geom::domain::Point2D::new(0.0, 0.0),
             ));
@@ -799,12 +799,12 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,

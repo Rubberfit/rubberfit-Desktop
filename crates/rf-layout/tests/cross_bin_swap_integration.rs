@@ -1,4 +1,4 @@
-﻿// engine/crates/rf-layout/tests/cross_bin_swap_integration.rs
+// engine/crates/rf-layout/tests/cross_bin_swap_integration.rs
 //
 // Task 11 integration tests for cross-bin swap operators. These run
 // against the real assignment pipeline (FFD â†’ operator â†’ materialize)
@@ -15,12 +15,12 @@ fn rect_part(id: &str, qty: u32, w: f64, h: f64) -> Part {
     Part {
         shape_id: id.into(),
         quantity: qty,
-        polygon: vec![
+        polygon: Some(vec![
             Point2D::new(0.0, 0.0),
             Point2D::new(w, 0.0),
             Point2D::new(w, h),
             Point2D::new(0.0, h),
-        ],
+        ]),
         shape_spec: None,
         allow_rotation: false,
         grain_axis: None,

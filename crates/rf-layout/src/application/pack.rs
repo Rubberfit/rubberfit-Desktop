@@ -17,7 +17,7 @@ pub fn pack(request: PackRequest) -> Result<PackResult, PackError> {
 /// a NDJSON-serializing callback when `--stream` is set, and a
 /// stdin-driven cancel token when cancel lines appear on stdin.
 pub fn pack_with_options(
-    request: PackRequest,
+    mut request: PackRequest,
     options: SearchOptions,
 ) -> Result<PackResult, PackError> {
     if request.bins.is_empty() {
@@ -26,6 +26,11 @@ pub fn pack_with_options(
     if request.items.is_empty() {
         return Err(PackError::NoItems);
     }
+
+    // Materialise polygons (cones from `kind: "sector"` shape spec)
+    // up front so downstream search/jagua code can assume every part
+    // has a polygon. See `application::cone_strategy`.
+    crate::application::cone_strategy::materialise_request_polygons(&mut request)?;
 
     let started_at = Instant::now();
 
@@ -47,6 +52,23 @@ pub fn pack_with_options(
     let mut per_bin: Vec<BinResult> = Vec::new();
     let mut index_counters: HashMap<String, u32> = HashMap::new();
 
+    // Resolve the cone render strategy once. Reused for every cone
+    // placement in the loop below — avoids per-placement Box allocations.
+    let cone_strategy = crate::application::cone_strategy::cone_strategy_for(
+        request.cone_strategy.unwrap_or_default(),
+    );
+    // Lookup table from shape_id to (optional) cone dimensions, so the
+    // hot loop below avoids rescanning request.items per placement.
+    let cone_dims_by_shape: HashMap<String, crate::application::cone_strategy::ConeDimensions> =
+        request
+            .items
+            .iter()
+            .filter_map(|p| {
+                crate::application::cone_strategy::cone_dims_from_part(p)
+                    .map(|d| (p.shape_id.clone(), d))
+            })
+            .collect();
+
     for (bin, seed) in request.bins.iter().zip(refined.per_bin) {
         let mut used_area = 0.0_f64;
         let mut occupied_width = 0.0_f64;
@@ -61,10 +83,37 @@ pub fn pack_with_options(
             let instance_index = *counter;
             *counter += 1;
 
-            let area = polygon_area(&p.polygon);
+            // Cones get the strategy-chosen render polygon (annular
+            // crescent for AnnularSector); every other shape passes
+            // its transformed pack polygon straight through. For
+            // cones, also stash the transformed pack polygon (=
+            // SeedPlacement.polygon = the transformed convex hull)
+            // on the Placement so the visualizer can paint it as a
+            // debug overlay.
+            //
+            // Render-polygon vertices are transformed via the same
+            // f32-round-trip math jagua used for the pack polygon
+            // (see `apply_placement_transform` below) so pack and
+            // render stay bit-aligned in placed coords.
+            let (polygon, pack_polygon) = match cone_dims_by_shape.get(&p.shape_id) {
+                Some(d) => match cone_strategy.render_polygon_local(*d) {
+                    Some(local) => {
+                        let render: Vec<rf_geom::domain::Point2D> = local
+                            .iter()
+                            .map(|q| apply_placement_transform(*q, p.x, p.y, p.rotation_rad))
+                            .collect();
+                        let pack = p.polygon.clone();
+                        (render, Some(pack))
+                    }
+                    None => (p.polygon, None),
+                },
+                None => (p.polygon, None),
+            };
+
+            let area = polygon_area(&polygon);
             used_area += area;
 
-            for v in &p.polygon {
+            for v in &polygon {
                 if v.x > occupied_width {
                     occupied_width = v.x;
                 }
@@ -80,11 +129,12 @@ pub fn pack_with_options(
                 x: p.x,
                 y: p.y,
                 rotation_rad: p.rotation_rad,
-                polygon: p.polygon,
+                polygon,
                 width: p.width,
                 height: p.height,
                 difficulty: None,
                 tag: None,
+                pack_polygon,
             });
         }
 
@@ -170,6 +220,32 @@ fn polygon_area(poly: &[rf_geom::domain::Point2D]) -> f64 {
     s.abs() / 2.0
 }
 
+/// Bit-identical replica of jagua-rs's `apply_dtransformation_to_point`
+/// (in `pack_lbf.rs`) but parameterised on f64 inputs from a
+/// `SeedPlacement`. SeedPlacement.x/y/rotation_rad came from
+/// `abs_transf.{translation, rotation}.into_inner() as f64` — i.e.
+/// f32 values losslessly widened — so casting back to f32 here
+/// produces the same f32 values jagua used. Then the f32 rotation +
+/// f32 translation arithmetic matches jagua's exactly.
+///
+/// Used to align cone render polygons with cone pack polygons in
+/// placed (bin-local) coords without depending on jagua's
+/// `DTransformation` type from this orchestration layer.
+fn apply_placement_transform(
+    p: rf_geom::domain::Point2D,
+    tx: f64,
+    ty: f64,
+    rotation_rad: f64,
+) -> rf_geom::domain::Point2D {
+    let theta = rotation_rad as f32;
+    let cos = theta.cos();
+    let sin = theta.sin();
+    let (px, py) = (p.x as f32, p.y as f32);
+    let rx = px * cos - py * sin + (tx as f32);
+    let ry = px * sin + py * cos + (ty as f32);
+    rf_geom::domain::Point2D::new(rx as f64, ry as f64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,12 +256,12 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: true,
             grain_axis: None,
@@ -217,6 +293,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: None,
             units: Default::default(),
+            cone_strategy: None,
         };
         assert!(matches!(pack(req), Err(PackError::NoBins)));
     }
@@ -234,6 +311,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: None,
             units: Default::default(),
+            cone_strategy: None,
         };
         assert!(matches!(pack(req), Err(PackError::NoItems)));
     }
@@ -251,6 +329,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: Some(42),
             units: Default::default(),
+            cone_strategy: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 3);
@@ -272,6 +351,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: Some(42),
             units: Default::default(),
+            cone_strategy: None,
         };
         let result = pack(req).unwrap();
         let a_indices: Vec<u32> = result
@@ -304,6 +384,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: Some(42),
             units: Default::default(),
+            cone_strategy: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 2);
@@ -323,6 +404,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: Some(42),
             units: Default::default(),
+            cone_strategy: None,
         };
         let result = pack(req).unwrap();
         assert!(
@@ -361,6 +443,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: Some(42),
             units: Default::default(),
+            cone_strategy: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(
@@ -384,6 +467,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: Some(42),
             units: Default::default(),
+            cone_strategy: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 3);

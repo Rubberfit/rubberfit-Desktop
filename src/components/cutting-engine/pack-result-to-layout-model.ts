@@ -158,6 +158,7 @@ function placementToPlacedPart(
     outerRadius: template?.outerRadius,
     arcDegrees: template?.arcDegrees,
     polygon: p.polygon,
+    packPolygon: p.packPolygon,
   }
 }
 

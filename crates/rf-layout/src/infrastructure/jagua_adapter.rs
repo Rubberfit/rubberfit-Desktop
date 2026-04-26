@@ -1,4 +1,4 @@
-﻿// engine/crates/rf-layout/src/infrastructure/jagua_adapter.rs
+// engine/crates/rf-layout/src/infrastructure/jagua_adapter.rs
 use crate::domain::{Bin, PackError, Part};
 
 use jagua_rs::collision_detection::CDEConfig;
@@ -64,6 +64,15 @@ pub fn to_jagua_instance(
         cd_threshold: 16,
         item_surrogate_config: SPSurrogateConfig {
             n_pole_limits: [(100, 0.0), (20, 0.75), (10, 0.90)],
+            // 2 poles + 0 piers matches jagua-rs's `lbf` reference
+            // binary defaults. We tried bumping this to 4/2 and 8/4
+            // to address an apparent collision-overlap report from
+            // the AutoNest UI, but: (a) 8/4 caused ~17x slowdown
+            // that blew per-pack budgets, (b) 4/2 broke the cancel
+            // latency SLA (~500ms cap turned into 7.5s under the
+            // heavier surrogate). The collision symptom is being
+            // diagnosed via a visualizer overlay (`Placement.pack_polygon`)
+            // before tuning the surrogate further.
             n_ff_poles: 2,
             n_ff_piers: 0,
         },
@@ -107,7 +116,8 @@ pub fn to_jagua_instance(
 }
 
 fn build_ext_item(id: u64, part: &Part) -> Result<BpExtItem, PackError> {
-    if part.polygon.len() < 3 {
+    let polygon = part.polygon_slice();
+    if polygon.len() < 3 {
         return Err(PackError::EngineFailed(format!(
             "part '{}' polygon has fewer than 3 vertices",
             part.shape_id
@@ -120,8 +130,7 @@ fn build_ext_item(id: u64, part: &Part) -> Result<BpExtItem, PackError> {
         )));
     }
 
-    let points: Vec<(f32, f32)> = part
-        .polygon
+    let points: Vec<(f32, f32)> = polygon
         .iter()
         .map(|p| Ok((finite_f32(p.x, "polygon.x")?, finite_f32(p.y, "polygon.y")?)))
         .collect::<Result<_, PackError>>()?;
@@ -183,12 +192,12 @@ mod tests {
         Part {
             shape_id: "rect-a".into(),
             quantity: 1,
-            polygon: vec![
+            polygon: Some(vec![
                 rf_geom::domain::Point2D::new(0.0, 0.0),
                 rf_geom::domain::Point2D::new(24.0, 0.0),
                 rf_geom::domain::Point2D::new(24.0, 12.0),
                 rf_geom::domain::Point2D::new(0.0, 12.0),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: true,
             grain_axis: None,
@@ -235,10 +244,10 @@ mod tests {
     fn rejects_degenerate_polygon() {
         let bins = vec![test_bin()];
         let mut part = test_rect_part();
-        part.polygon = vec![
+        part.polygon = Some(vec![
             rf_geom::domain::Point2D::new(0.0, 0.0),
             rf_geom::domain::Point2D::new(1.0, 0.0),
-        ]; // only 2 vertices
+        ]); // only 2 vertices
         let r = to_jagua_instance(&bins, &[part], 0.125);
         assert!(r.is_err(), "polygon with <3 vertices should be rejected");
     }
@@ -255,7 +264,7 @@ mod tests {
     fn rejects_nan_coordinate() {
         let bins = vec![test_bin()];
         let mut part = test_rect_part();
-        part.polygon[0].x = f64::NAN;
+        part.polygon.as_mut().expect("test fixture has polygon")[0].x = f64::NAN;
         let r = to_jagua_instance(&bins, &[part], 0.125);
         assert!(r.is_err(), "NaN coordinate should be rejected");
     }

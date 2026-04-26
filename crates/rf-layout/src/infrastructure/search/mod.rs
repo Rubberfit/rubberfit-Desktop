@@ -1,4 +1,4 @@
-﻿// engine/crates/rf-layout/src/infrastructure/search/mod.rs
+// engine/crates/rf-layout/src/infrastructure/search/mod.rs
 //
 // Single-bin search orchestrator. Wires Task 6's `exploration_phase`
 // and Task 7's identity `compression_phase` into the pipeline
@@ -309,7 +309,7 @@ enum RepackOutcome {
 fn build_copy_order(items: &[Part]) -> Result<Vec<(usize, u32)>, PackError> {
     let mut shape_meta: Vec<(usize, f64, &str)> = Vec::with_capacity(items.len());
     for (idx, part) in items.iter().enumerate() {
-        let bbox = rf_geom::application::bbox_of(&part.polygon).map_err(|source| {
+        let bbox = rf_geom::application::bbox_of(part.polygon_slice()).map_err(|source| {
             PackError::InvalidPolygon {
                 shape_id: part.shape_id.clone(),
                 source,
@@ -427,7 +427,7 @@ fn build_overlap_seed(
         }
 
         let part = &items[shape_idx];
-        let bbox = rf_geom::application::bbox_of(&part.polygon).map_err(|source| {
+        let bbox = rf_geom::application::bbox_of(part.polygon_slice()).map_err(|source| {
             PackError::InvalidPolygon {
                 shape_id: part.shape_id.clone(),
                 source,
@@ -451,7 +451,7 @@ fn build_overlap_seed(
             y,
             rotation_rad: 0.0,
             polygon: part
-                .polygon
+                .polygon_slice()
                 .iter()
                 .map(|p| Point2D::new(p.x - bbox.0.x + x, p.y - bbox.0.y + y))
                 .collect(),
@@ -637,7 +637,7 @@ fn snapshot_to_seed(
 
         let part = &items[pi.item_id];
         let polygon: Vec<Point2D> = part
-            .polygon
+            .polygon_slice()
             .iter()
             .map(|p| apply_dtransformation_to_point(&abs_transf, *p))
             .collect();
@@ -707,12 +707,12 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: 1,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(side, 0.0),
                 Point2D::new(side, side),
                 Point2D::new(0.0, side),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,
@@ -1013,12 +1013,12 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(side, 0.0),
                 Point2D::new(side, side),
                 Point2D::new(0.0, side),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,

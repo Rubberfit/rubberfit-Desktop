@@ -1,4 +1,4 @@
-﻿// engine/crates/rf-layout/src/infrastructure/search/gls/separator.rs
+// engine/crates/rf-layout/src/infrastructure/search/gls/separator.rs
 //
 // Ported from sparrow's `src/optimizer/{separator,worker}.rs` (MIT,
 // Copyright 2025 Jeroen Gardeyn, KU Leuven, ejor-snapshot tag c95454e3).
@@ -522,12 +522,12 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: 1,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(side, 0.0),
                 Point2D::new(side, side),
                 Point2D::new(0.0, side),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,

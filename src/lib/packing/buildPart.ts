@@ -21,8 +21,23 @@ export interface BuildPartInput {
 }
 
 export function buildPart(input: BuildPartInput): Part {
-  let polygon: Point2D[]
+  // Cones (sector shape spec): polygon construction lives in Rust now
+  // — both the convex hull jagua collides on AND the annular crescent
+  // the visualizer paints. TS ships the dimensions only.
+  // See `crates/rf-layout/src/application/cone_strategy.rs`.
+  if (input.shapeSpec?.kind === "sector") {
+    return {
+      shapeId: input.shapeId,
+      quantity: input.quantity,
+      shapeSpec: input.shapeSpec,
+      allowRotation: input.allowRotation,
+      grainAxis: input.grainAxis,
+      difficulty: input.difficulty,
+      tag: input.tag,
+    }
+  }
 
+  let polygon: Point2D[]
   if (input.polygon) {
     polygon = normalizePolygon(input.polygon)
   } else if (input.shapeSpec) {
@@ -54,13 +69,6 @@ function buildPolygonFromSpec(spec: ShapeSpec): Point2D[] {
         Number(spec.params.topWidth),
         Number(spec.params.bottomWidth),
         Number(spec.params.height)
-      )
-    case "sector":
-      return buildSector(
-        Number(spec.params.innerRadius),
-        Number(spec.params.outerRadius),
-        Number(spec.params.arcDegrees),
-        Number(spec.params.segments ?? 24)
       )
     case "ngon":
       return buildNGon(Number(spec.params.sides), Number(spec.params.radius))
@@ -105,21 +113,6 @@ function buildCircle(diameter: number, segments: number): Point2D[] {
     pts.push({ x: r + r * Math.cos(theta), y: r + r * Math.sin(theta) })
   }
   return normalizePolygon(pts)
-}
-
-function buildSector(innerR: number, outerR: number, arcDeg: number, segments: number): Point2D[] {
-  if (!(outerR > innerR)) throw new Error("sector: outerRadius must exceed innerRadius")
-  if (!(arcDeg > 0 && arcDeg < 360)) throw new Error("sector: arcDegrees must be in (0, 360)")
-  const arcRad = (arcDeg * Math.PI) / 180
-  const step = arcRad / segments
-  const outer: Point2D[] = []
-  const inner: Point2D[] = []
-  for (let i = 0; i <= segments; i++) {
-    const a = i * step
-    outer.push({ x: outerR * Math.cos(a), y: outerR * Math.sin(a) })
-    inner.push({ x: innerR * Math.cos(a), y: innerR * Math.sin(a) })
-  }
-  return normalizePolygon([...outer, ...inner.reverse()])
 }
 
 function buildNGon(sides: number, radius: number): Point2D[] {

@@ -11,10 +11,28 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { getPackingService } from "@/lib/packing/service-compat"
 import { buildPackRequest } from "@/lib/packing/buildPackRequest"
-import type { Bin, PackRequest, Part } from "@/lib/packing/types"
+import type { Bin, ConeStrategy, PackRequest, Part } from "@/lib/packing/types"
 import type { PartTemplate } from "./preset-template-data"
 import type { LayoutModel } from "./layout-model"
 import { packResultToLayoutModel } from "./pack-result-to-layout-model"
+
+/**
+ * Resolve the cone render strategy from the `?cone=` URL param.
+ *
+ * Accepted values: `convex-wedge` / `convexWedge` →
+ * `"convexWedge"`; `annular-sector` / `annularSector` →
+ * `"annularSector"`. Anything else (or no window) → undefined,
+ * which the Rust side treats as `AnnularSector` (the default
+ * high-fidelity render). See
+ * `crates/rf-layout/src/application/cone_strategy.rs`.
+ */
+function getConeStrategyFromUrl(): ConeStrategy | undefined {
+  if (typeof window === "undefined") return undefined
+  const v = new URLSearchParams(window.location.search).get("cone")
+  if (v === "convex-wedge" || v === "convexWedge") return "convexWedge"
+  if (v === "annular-sector" || v === "annularSector") return "annularSector"
+  return undefined
+}
 
 export interface UsePackJobInput {
   /** Stock sheet(s) to pack into. Issue multiple bins for multi-sheet. */
@@ -33,6 +51,15 @@ export interface UsePackJobInput {
    * pipeline on every input edit while staging 100+ parts.
    */
   enabled: boolean
+  /**
+   * Render strategy for cone (sector) shapes. Forwarded to the Rust
+   * pack pipeline as `PackRequest.coneStrategy`. When omitted, falls
+   * back to the `?cone=convex-wedge|annular-sector` URL param (dev /
+   * power-user override), and finally to the Rust default
+   * (`annularSector`). See
+   * `crates/rf-layout/src/application/cone_strategy.rs`.
+   */
+  coneStrategy?: ConeStrategy
 }
 
 export interface UsePackJobOutput {
@@ -58,6 +85,7 @@ export function usePackJob({
   templates,
   tagByShapeId,
   enabled,
+  coneStrategy,
 }: UsePackJobInput): UsePackJobOutput {
   const [layouts, setLayouts] = useState<LayoutModel[] | null>(null)
   const [isPacking, setIsPacking] = useState(false)
@@ -77,13 +105,19 @@ export function usePackJob({
         parts: parts.map((p) => ({
           s: p.shapeId,
           q: p.quantity,
-          n: p.polygon.length,
+          // Cones ship spec-only (polygon constructed Rust-side); use
+          // the spec params as the cache key signal so dimension edits
+          // re-run the pack.
+          n: p.polygon?.length ?? 0,
+          k: p.shapeSpec?.kind ?? null,
+          ps: p.shapeSpec?.params ?? null,
           t: p.tag ?? null,
           r: p.allowRotation,
         })),
         clearance,
+        coneStrategy: coneStrategy ?? null,
       }),
-    [bins, parts, clearance]
+    [bins, parts, clearance, coneStrategy]
   )
 
   // Track latest run so a stale resolve doesn't clobber a newer run's
@@ -121,6 +155,11 @@ export function usePackJob({
         setPackError((err as Error).message)
         return
       }
+
+      // UI-selected strategy wins; URL param is the dev / power-user
+      // override when no UI value is supplied.
+      const resolvedConeStrategy = coneStrategy ?? getConeStrategyFromUrl()
+      if (resolvedConeStrategy) request.coneStrategy = resolvedConeStrategy
 
       try {
         const result = await getPackingService().pack(request)

@@ -1,4 +1,4 @@
-﻿// engine/crates/rf-layout/src/infrastructure/search/multi.rs
+// engine/crates/rf-layout/src/infrastructure/search/multi.rs
 //
 // Task 12: multi-bin orchestrator (`optimize_multi`).
 //
@@ -426,12 +426,12 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,
@@ -462,6 +462,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: Some(42),
             units: Default::default(),
+            cone_strategy: None,
         }
     }
 

@@ -33,6 +33,7 @@ import type { LayoutModel } from "@/components/cutting-engine/layout-model"
 import { usePackJob } from "@/components/cutting-engine/use-pack-job"
 import { buildPart } from "@/lib/packing/buildPart"
 import type { Bin, Part } from "@/lib/packing/types"
+import { Checkbox } from "@/components/ui/checkbox"
 import type { ExtractedPart } from "@/types/vision"
 import type { MaterialType } from "@/types/supabase-models"
 
@@ -165,6 +166,11 @@ export function AutoNestPage() {
   const [stock, setStock] = useState<StockConfig>(DEMO_STOCK)
   const [cutMetrics, setCutMetrics] = useState<SimpleCutMetrics | null>(null)
   const [isExporting, setIsExporting] = useState(false)
+  // Debug overlay: draw the convex hull jagua actually collided on
+  // (currently cone-only — every other shape's pack polygon equals
+  // its render polygon). Off by default; surfaces in the Graph card
+  // header only when at least one cone is being packed.
+  const [showPackHullOverlay, setShowPackHullOverlay] = useState(false)
   const { status: packStatus, requestPack, invalidate } = usePackGate()
 
   const selectedTemplates = useMemo(
@@ -319,6 +325,15 @@ export function AutoNestPage() {
     tagByShapeId: tagByTemplateId,
     enabled: packStatus === "done",
   })
+
+  // Whether any selected/uploaded part is a cone — gates the cone
+  // strategy selector so non-cone workflows don't see an irrelevant
+  // control. Reads the canonical Part shape spec rather than the
+  // template's `partType` so behavior matches what Rust receives.
+  const hasCones = useMemo(
+    () => packParts.some((p) => p.shapeSpec?.kind === "sector"),
+    [packParts]
+  )
 
   // PDF export consumes layouts. usePackJob owns them now; mirror the
   // hook output into a non-null array so downstream code stays simple.
@@ -505,17 +520,28 @@ export function AutoNestPage() {
 
           <Card className="border border-slate-200 shadow-sm">
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <CardTitle className="flex items-center gap-2 text-base font-semibold">
                   <LayoutLabel />
                   4. Graph
                 </CardTitle>
-                {cutMetrics !== null && cutMetrics.partsCompleted > 0 && (
-                  <Button size="sm" onClick={handleExportPdf} disabled={isExporting}>
-                    <FileDown className="mr-1.5 h-4 w-4" />
-                    {isExporting ? "Saving…" : "Export PDF"}
-                  </Button>
-                )}
+                <div className="flex items-center gap-3">
+                  {hasCones && (
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Checkbox
+                        checked={showPackHullOverlay}
+                        onCheckedChange={(v) => setShowPackHullOverlay(v === true)}
+                      />
+                      Show pack hull
+                    </label>
+                  )}
+                  {cutMetrics !== null && cutMetrics.partsCompleted > 0 && (
+                    <Button size="sm" onClick={handleExportPdf} disabled={isExporting}>
+                      <FileDown className="mr-1.5 h-4 w-4" />
+                      {isExporting ? "Saving…" : "Export PDF"}
+                    </Button>
+                  )}
+                </div>
               </div>
               <CardDescription>
                 The graph starts from rectangular stock and shows the actual cut pieces placed on
@@ -532,6 +558,7 @@ export function AutoNestPage() {
                   isPacking={isPacking}
                   packError={packError}
                   onMetricsChange={setCutMetrics}
+                  showPackHullOverlay={showPackHullOverlay}
                 />
               ) : (
                 <PackPrompt

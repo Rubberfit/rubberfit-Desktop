@@ -81,7 +81,7 @@ pub fn pack_lbf(request: PackRequest) -> Result<PackResult, PackError> {
 
 /// Extended entry point exposing [`PackLbfConfig`] for benches / tuning.
 pub fn pack_lbf_with_config(
-    request: PackRequest,
+    mut request: PackRequest,
     cfg: PackLbfConfig,
 ) -> Result<PackResult, PackError> {
     if request.bins.is_empty() {
@@ -95,6 +95,8 @@ pub fn pack_lbf_with_config(
             "multistart_seeds must be â‰¥ 1".into(),
         ));
     }
+
+    crate::application::cone_strategy::materialise_request_polygons(&mut request)?;
 
     let started_at = Instant::now();
 
@@ -173,8 +175,13 @@ pub fn pack_lbf_with_config(
         let mut occupied_height = 0.0_f64;
 
         if let Some(ls) = layout {
-            let placements_this_bin =
-                snapshot_to_placements(ls, &instance, &request.items, &bin.bin_id);
+            let placements_this_bin = snapshot_to_placements(
+                ls,
+                &instance,
+                &request.items,
+                &bin.bin_id,
+                request.cone_strategy.unwrap_or_default(),
+            );
 
             for p in placements_this_bin {
                 // Global `instance_index` renumbering per shape â€” same
@@ -310,6 +317,7 @@ fn snapshot_to_placements(
     instance: &BPInstance,
     items: &[crate::domain::Part],
     bin_id: &str,
+    cone_strategy_kind: crate::application::cone_strategy::ConeStrategyKind,
 ) -> Vec<Placement> {
     let mut entries: Vec<&PlacedItem> = snap.placed_items.values().collect();
     entries.sort_by_key(|pi| {
@@ -321,6 +329,10 @@ fn snapshot_to_placements(
         )
     });
 
+    // Resolve the cone strategy once. Reused for every placement that
+    // turns out to be a cone — avoids per-placement Box allocations.
+    let cone_strategy = crate::application::cone_strategy::cone_strategy_for(cone_strategy_kind);
+
     let mut placements = Vec::with_capacity(entries.len());
     for pi in entries {
         let item = instance.item(pi.item_id);
@@ -328,11 +340,42 @@ fn snapshot_to_placements(
         let abs_transf = int_to_ext_transformation(&pi.d_transf, pre_transf);
 
         let part = &items[pi.item_id];
-        let polygon: Vec<Point2D> = part
-            .polygon
+        let pack_polygon: Vec<Point2D> = part
+            .polygon_slice()
             .iter()
             .map(|p| apply_dtransformation_to_point(&abs_transf, *p))
             .collect();
+
+        // Cones get the strategy's render polygon (e.g. the concave
+        // annular crescent for AnnularSector). For cones we also keep
+        // the transformed convex hull on the Placement (`pack_polygon`)
+        // so the visualizer can show the surface jagua actually
+        // collided on.
+        //
+        // CRITICAL: render-polygon vertices are transformed via the
+        // SAME `apply_dtransformation_to_point` call used for the
+        // pack polygon. This guarantees bit-identical transform math
+        // for both polygons — they cannot drift apart in placed
+        // coords no matter what the rotation or translation is. The
+        // earlier (now-removed) approach used a parallel f64-based
+        // transform that produced visibly misaligned polygons under
+        // non-trivial rotations.
+        let (polygon, placement_pack_polygon) =
+            match crate::application::cone_strategy::cone_dims_from_part(part) {
+                Some(d) => match cone_strategy.render_polygon_local(d) {
+                    Some(local) => {
+                        let render: Vec<Point2D> = local
+                            .iter()
+                            .map(|p| apply_dtransformation_to_point(&abs_transf, *p))
+                            .collect();
+                        (render, Some(pack_polygon))
+                    }
+                    // Wedge strategy: render polygon == pack polygon,
+                    // no overlay needed (they're the same shape).
+                    None => (pack_polygon, None),
+                },
+                None => (pack_polygon, None),
+            };
 
         let (min_x, min_y, max_x, max_y) = polygon.iter().fold(
             (
@@ -360,6 +403,7 @@ fn snapshot_to_placements(
             height,
             difficulty: None,
             tag: None,
+            pack_polygon: placement_pack_polygon,
         });
     }
     placements
@@ -401,12 +445,12 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: true,
             grain_axis: None,
@@ -437,6 +481,7 @@ mod tests {
             improvement_budget_ms: None,
             seed: Some(42),
             units: Default::default(),
+            cone_strategy: None,
         }
     }
 

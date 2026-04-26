@@ -70,7 +70,9 @@
 
 use crate::application::offcut_classifier::classify_rect;
 use crate::domain::{Bin, ClassifiedOffcut, OffcutKind, Placement};
-use rf_geom::application::inscribed::{largest_inscribed_rect, largest_inscribed_rect_avoiding};
+use rf_geom::application::inscribed::{
+    largest_inscribed_rect, largest_inscribed_rect_avoiding, snap_rect_to_polygon_and_obstacles,
+};
 use rf_geom::domain::{Point2D, Polygon};
 use rf_geom::infrastructure::clipper::{difference as clip_difference, union as clip_union};
 
@@ -454,38 +456,46 @@ fn extract_offcuts_with_obstacles(
             break;
         };
 
-        // The grid-based `largest_inscribed_rect` samples cell
-        // centers, so a rect of N × M cells reports dimensions
-        // (N × grid_step, M × grid_step) — but cells at the polygon
-        // border can have their CENTER inside while up to half the
-        // cell extends outside the polygon. Worst-case cumulative
-        // overshoot across multiple disjoint free regions can push
-        // emitted total above the bin's stock area when one rect
-        // extends into another region's footprint. Shrink the
-        // EMITTED rect by a full grid step on every side (1.5x the
-        // half-cell worst case, with safety margin) to guarantee
-        // strict interior containment. Use the unshrunk rect for
-        // subtraction below so the algorithm still progresses past
-        // borderline cells.
-        let inset = INSCRIBED_GRID_STEP;
-        let report_x = rect.x + inset;
-        let report_y = rect.y + inset;
-        let report_w = (rect.width - 2.0 * inset).max(0.0);
-        let report_h = (rect.height - 2.0 * inset).max(0.0);
-
-        // Drop the emit if the shrink reduced it to nothing — but
-        // still subtract the unshrunk rect so we don't loop on the
-        // same fragment.
-        if report_w * report_h < MIN_REGION_AREA_SQIN {
+        // The grid-based `largest_inscribed_rect` samples cell centres
+        // and reports dimensions in `grid_step` units. Cells at the
+        // polygon/obstacle border may have their centre inside while
+        // up to half the cell extends outside, so the raw `rect` is
+        // strictly contained in the polygon but undershoots the true
+        // free area by up to half a grid step on every side. With the
+        // pipeline's default 0.125" clearance, obstacle edges land
+        // between cell centres, costing a further full cell — for
+        // axis-aligned scenarios (e.g. three rectangles producing an
+        // L-shape) this turned 0% real waste into ~2.7% reported
+        // waste.
+        //
+        // `snap_rect_to_polygon_and_obstacles` walks the polygon and
+        // obstacle edges and pulls the emitted rect outward to the
+        // actual geometric edge (capped at one grid step per side).
+        // Axis-aligned scenarios recover exactly; curved obstacles
+        // (cones, sectors, ngons) clamp conservatively to the curved
+        // edge's bbox so the snapped rect never crosses into the
+        // curve's silhouette.
+        //
+        // Snap is reporting-only; the subtraction below still uses the
+        // unshrunk grid rect to preserve the inscribed-rect loop's
+        // convergence (residual polygon shrinks by ≥1 grid step per
+        // iteration, bounded `MAX_OFFCUTS_PER_BIN`).
+        let snapped = snap_rect_to_polygon_and_obstacles(
+            rect,
+            &working[idx],
+            obstacles,
+            INSCRIBED_GRID_STEP,
+        );
+        if snapped.area() < MIN_REGION_AREA_SQIN {
             // fall through to subtraction below to clear the source.
         } else {
-            let kind = classify_rect(report_w, report_h);
+            let kind = classify_rect(snapped.width, snapped.height);
             offcuts.push(ClassifiedOffcut {
                 bin_id: bin_id.to_string(),
-                x: report_x,
-                y: report_y,
-                width: report_w,
-                height: report_h,
+                x: snapped.x,
+                y: snapped.y,
+                width: snapped.width,
+                height: snapped.height,
                 kind,
             });
         }
@@ -638,16 +648,13 @@ mod tests {
         let p = rect_placement("b1", 0.0, 0.0, 43.0, 96.0);
         let (_regions, offcuts) = extract_free_space_legacy(&bin, &[&p]);
         assert!(!offcuts.is_empty());
-        // The biggest inscribed rect should be ~5″ wide, classified Scrap.
-        // The emitted rect is shrunk by `INSCRIBED_GRID_STEP` per side
-        // (see free_space.rs `inset` doc), so the reported width is
-        // ~5 − 2 × 0.25 = 4.5″.
+        // After snap-to-polygon-edge, the emitted rect should report
+        // ≈5″ wide (the true free strip), not the previously-shrunk
+        // 4.5″. Classification stays Scrap (5 < 6 strip minimum).
         assert_eq!(offcuts[0].kind, OffcutKind::Scrap);
-        let expected_width = 5.0 - 2.0 * INSCRIBED_GRID_STEP;
         assert!(
-            (offcuts[0].width - expected_width).abs() < INSCRIBED_GRID_STEP * 1.5,
-            "expected width ~{:.3}, got {:.3}",
-            expected_width,
+            (offcuts[0].width - 5.0).abs() < 0.25,
+            "expected width ~5.0, got {:.3}",
             offcuts[0].width,
         );
     }

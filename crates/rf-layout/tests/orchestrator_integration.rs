@@ -48,6 +48,7 @@ fn small_multi_bin_request() -> PackRequest {
         seed: Some(42),
         units: UnitSystem::default(),
         cone_strategy: None,
+        cone_packing_mode: None,
     }
 }
 
@@ -97,6 +98,7 @@ fn pack_multi_bin_large_fixture() {
         seed: Some(42),
         units: UnitSystem::default(),
         cone_strategy: None,
+        cone_packing_mode: None,
     };
     let total_requested: u32 = req.items.iter().map(|p| p.quantity).sum();
     let result = pack(req).expect("pack should succeed on large multi-bin fixture");
@@ -125,6 +127,7 @@ fn pack_single_bin_parity_holds() {
         seed: Some(42),
         units: UnitSystem::default(),
         cone_strategy: None,
+        cone_packing_mode: None,
     };
     let result = pack(req).expect("pack should succeed on single-bin fixture");
     assert_eq!(result.placed_count, 3, "all 3 items should fit");

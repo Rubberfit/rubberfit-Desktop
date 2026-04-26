@@ -44,8 +44,7 @@ fn tag_each_part(parts: &mut [Part]) {
 
 fn load_request(path: &Path) -> PackRequest {
     let content = fs::read_to_string(path).expect("read fixture");
-    serde_json::from_str(&content)
-        .unwrap_or_else(|e| panic!("parse {}: {}", path.display(), e))
+    serde_json::from_str(&content).unwrap_or_else(|e| panic!("parse {}: {}", path.display(), e))
 }
 
 fn polygon_signed_area(p: &Polygon) -> f64 {
@@ -188,12 +187,12 @@ fn every_fixture_packs_through_default_strategy() {
         // Invariant 4 — Tag round-trip. Every produced placement
         // carries the exact tag of its source Part.
         for placement in &result.placements {
-            let want = expected_tag
-                .get(&placement.shape_id)
-                .unwrap_or_else(|| panic!(
+            let want = expected_tag.get(&placement.shape_id).unwrap_or_else(|| {
+                panic!(
                     "[{fixture_name}] placement for unknown shape_id {}",
                     placement.shape_id,
-                ));
+                )
+            });
             assert_eq!(
                 placement.tag.as_ref(),
                 Some(want),

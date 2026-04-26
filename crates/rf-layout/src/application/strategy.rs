@@ -288,6 +288,7 @@ mod tests {
             seed: Some(7),
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         };
 
         let result = strategy_for(None)
@@ -322,6 +323,7 @@ mod tests {
             seed: Some(7),
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         };
 
         let result = strategy_for(None)

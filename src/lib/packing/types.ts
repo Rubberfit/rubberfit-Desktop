@@ -85,15 +85,25 @@ export type PackEngine = "default" | "lbf" | "legacy"
  * Render strategy for cone (sector) shapes. Mirrors
  * `ConeStrategyKind` in `crates/rf-layout/src/application/cone_strategy.rs`.
  *
- * - `convexWedge`: cones display as solid wedges (cheaper, slight
- *   density loss vs nesting).
+ * - `convexWedge`: cones display as solid wedges when the pack
+ *   polygon is also the convex hull.
  * - `annularSector`: cones display as the real annular crescent
  *   (high-fidelity render of what the operator will cut).
  *
- * Both strategies pack against the convex hull so jagua's collision
- * surrogate is exact. Absent → Rust default (`annularSector`).
+ * Absent -> Rust default (`annularSector`).
  */
 export type ConeStrategy = "convexWedge" | "annularSector"
+
+/**
+ * Collision polygon for cone (sector) shapes. Mirrors
+ * `ConePackingMode` in `crates/rf-layout/src/application/cone_strategy.rs`.
+ *
+ * - `convexHull`: conservative default; jagua collides against the
+ *   convex hull and may expose it as `Placement.packPolygon`.
+ * - `annularSector`: opt-in precise mode; jagua collides against the
+ *   real concave annular sector so cones can nest into concavities.
+ */
+export type ConePackingMode = "convexHull" | "annularSector"
 
 export interface PackRequest {
   bins: Bin[]
@@ -107,6 +117,7 @@ export interface PackRequest {
   seed?: number | null
   units?: UnitSystem
   coneStrategy?: ConeStrategy
+  conePackingMode?: ConePackingMode
 }
 
 export interface Placement {
@@ -129,12 +140,11 @@ export interface Placement {
   tag?: string | null
   /**
    * Transformed pack polygon — the surface jagua actually collided
-   * on. Populated only when it differs from `polygon` (today: cones,
-   * where pack = convex hull but render = annular crescent). The
-   * visualizer paints this as a translucent overlay so operators
-   * can see jagua's "mental model" of the shape. Undefined for
-   * shapes where pack polygon == render polygon (rects, trapezoids,
-   * circles, ngons).
+   * on. Populated only when it differs from `polygon` (today: the
+   * cone convex-hull overlay in default packing). The visualizer
+   * paints this as a translucent overlay so operators can see jagua's
+   * "mental model" of the shape. Undefined for shapes where pack
+   * polygon == render polygon, including annular-sector cone packing.
    */
   packPolygon?: Point2D[]
 }

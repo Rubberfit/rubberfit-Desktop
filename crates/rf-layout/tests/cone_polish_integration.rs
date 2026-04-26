@@ -1,5 +1,6 @@
 use rf_geom::domain::Point2D;
 use rf_layout::application::strategy_for;
+use rf_layout::application::ConePackingMode;
 use rf_layout::domain::{Bin, BinKind, PackMode, PackRequest, Part, Placement, ShapeSpec};
 use std::collections::HashMap;
 
@@ -41,6 +42,7 @@ fn auto_nest_cone_request() -> PackRequest {
         seed: Some(42),
         units: Default::default(),
         cone_strategy: None,
+        cone_packing_mode: None,
     }
 }
 
@@ -57,6 +59,48 @@ fn default_strategy_does_not_return_overlapping_auto_nest_cones() {
     assert!(
         !placements_have_pack_surface_overlap(&result.placements),
         "default strategy returned overlapping cone pack surfaces"
+    );
+}
+
+#[test]
+fn default_strategy_keeps_convex_hull_pack_overlay_for_cones() {
+    let result = strategy_for(None)
+        .pack(auto_nest_cone_request())
+        .expect("default strategy should pack AutoNest cone request");
+
+    assert!(
+        result.placements.iter().all(|p| p.polygon.len() == 50),
+        "default render polygon should be the annular sector"
+    );
+    assert!(
+        result
+            .placements
+            .iter()
+            .all(|p| p.pack_polygon.as_ref().is_some_and(|poly| poly.len() == 27)),
+        "default pack surface should remain the convex hull overlay"
+    );
+}
+
+#[test]
+fn annular_sector_packing_mode_packs_real_cone_polygon_without_overlay() {
+    let mut request = auto_nest_cone_request();
+    request.cone_packing_mode = Some(ConePackingMode::AnnularSector);
+
+    let result = strategy_for(None)
+        .pack(request)
+        .expect("annular-sector pack mode should pack AutoNest cone request");
+
+    assert_eq!(
+        result.placed_count, 4,
+        "annular-sector regression fixture should place every requested cone"
+    );
+    assert!(
+        result.placements.iter().all(|p| p.polygon.len() == 50),
+        "pack/render polygon should be the real annular sector"
+    );
+    assert!(
+        result.placements.iter().all(|p| p.pack_polygon.is_none()),
+        "annular-sector pack mode should not emit a hull overlay"
     );
 }
 

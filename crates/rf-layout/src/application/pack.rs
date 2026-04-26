@@ -57,6 +57,7 @@ pub fn pack_with_options(
     let cone_strategy = crate::application::cone_strategy::cone_strategy_for(
         request.cone_strategy.unwrap_or_default(),
     );
+    let cone_packing_mode = request.cone_packing_mode.unwrap_or_default();
     // Lookup table from shape_id to (optional) cone dimensions, so the
     // hot loop below avoids rescanning request.items per placement.
     let cone_dims_by_shape: HashMap<String, crate::application::cone_strategy::ConeDimensions> =
@@ -96,6 +97,12 @@ pub fn pack_with_options(
             // (see `apply_placement_transform` below) so pack and
             // render stay bit-aligned in placed coords.
             let (polygon, pack_polygon) = match cone_dims_by_shape.get(&p.shape_id) {
+                Some(_)
+                    if cone_packing_mode
+                        == crate::application::cone_strategy::ConePackingMode::AnnularSector =>
+                {
+                    (p.polygon, None)
+                }
                 Some(d) => match cone_strategy.render_polygon_local(*d) {
                     Some(local) => {
                         let render: Vec<rf_geom::domain::Point2D> = local
@@ -294,6 +301,7 @@ mod tests {
             seed: None,
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         };
         assert!(matches!(pack(req), Err(PackError::NoBins)));
     }
@@ -312,6 +320,7 @@ mod tests {
             seed: None,
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         };
         assert!(matches!(pack(req), Err(PackError::NoItems)));
     }
@@ -330,6 +339,7 @@ mod tests {
             seed: Some(42),
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 3);
@@ -352,6 +362,7 @@ mod tests {
             seed: Some(42),
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         };
         let result = pack(req).unwrap();
         let a_indices: Vec<u32> = result
@@ -385,6 +396,7 @@ mod tests {
             seed: Some(42),
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 2);
@@ -405,6 +417,7 @@ mod tests {
             seed: Some(42),
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         };
         let result = pack(req).unwrap();
         assert!(
@@ -444,6 +457,7 @@ mod tests {
             seed: Some(42),
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(
@@ -468,6 +482,7 @@ mod tests {
             seed: Some(42),
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 3);

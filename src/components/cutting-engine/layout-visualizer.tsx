@@ -49,10 +49,10 @@ export interface LayoutVisualizerProps {
    */
   onLayoutChange?: (layouts: LayoutModel[]) => void
   /**
-   * If true, draw each placed part's `packPolygon` (the convex hull
-   * jagua actually collided on) as a translucent dashed amber stroke
-   * on top of the rendered shape. Cone-only today; falsy/absent
-   * `packPolygon` is silently skipped per part.
+   * If true, draw each placed part's `packPolygon` as a translucent
+   * dashed amber stroke on top of the rendered shape. Cone-only today,
+   * and only present when the cone collision surface differs from the
+   * rendered annular sector.
    */
   showPackHullOverlay?: boolean
 }

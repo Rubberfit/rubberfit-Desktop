@@ -140,6 +140,7 @@ pub fn pack_lbf_lns_with_config(
             seed: request.seed,
             units: request.units,
             cone_strategy: request.cone_strategy,
+            cone_packing_mode: request.cone_packing_mode,
         };
 
         let sub_result = pack_lbf_lns_single_bin(sub_request, cfg.clone())?;
@@ -679,6 +680,7 @@ fn rebuild_pack_result(
     let cone_strategy = crate::application::cone_strategy::cone_strategy_for(
         request.cone_strategy.unwrap_or_default(),
     );
+    let cone_packing_mode = request.cone_packing_mode.unwrap_or_default();
 
     for pi in entries {
         let item = instance.item(pi.item_id);
@@ -697,6 +699,12 @@ fn rebuild_pack_result(
         // identity between pack and render polygons.
         let (polygon, placement_pack_polygon) =
             match crate::application::cone_strategy::cone_dims_from_part(part) {
+                Some(_)
+                    if cone_packing_mode
+                        == crate::application::cone_strategy::ConePackingMode::AnnularSector =>
+                {
+                    (pack_polygon, None)
+                }
                 Some(d) => match cone_strategy.render_polygon_local(d) {
                     Some(local) => {
                         let render: Vec<Point2D> = local
@@ -912,6 +920,7 @@ mod tests {
             seed: Some(42),
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         }
     }
 

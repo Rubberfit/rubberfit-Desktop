@@ -32,8 +32,15 @@ import { buildCutPdf } from "@/components/cutting-engine/cut-history-pdf"
 import type { LayoutModel } from "@/components/cutting-engine/layout-model"
 import { usePackJob } from "@/components/cutting-engine/use-pack-job"
 import { buildPart } from "@/lib/packing/buildPart"
-import type { Bin, Part } from "@/lib/packing/types"
+import type { Bin, ConePackingMode, Part } from "@/lib/packing/types"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import type { ExtractedPart } from "@/types/vision"
 import type { MaterialType } from "@/types/supabase-models"
 
@@ -166,11 +173,12 @@ export function AutoNestPage() {
   const [stock, setStock] = useState<StockConfig>(DEMO_STOCK)
   const [cutMetrics, setCutMetrics] = useState<SimpleCutMetrics | null>(null)
   const [isExporting, setIsExporting] = useState(false)
-  // Debug overlay: draw the convex hull jagua actually collided on
-  // (currently cone-only — every other shape's pack polygon equals
-  // its render polygon). Off by default; surfaces in the Graph card
-  // header only when at least one cone is being packed.
+  // Debug overlay: draw jagua's pack polygon when it differs from the
+  // rendered shape. Currently cone-only in default hull-packing mode.
+  // Off by default; surfaces in the Graph card header only when at
+  // least one cone is being packed.
   const [showPackHullOverlay, setShowPackHullOverlay] = useState(false)
+  const [conePackingMode, setConePackingMode] = useState<ConePackingMode>("convexHull")
   const { status: packStatus, requestPack, invalidate } = usePackGate()
 
   const selectedTemplates = useMemo(
@@ -324,6 +332,7 @@ export function AutoNestPage() {
     templates: selectedTemplates,
     tagByShapeId: tagByTemplateId,
     enabled: packStatus === "done",
+    conePackingMode,
   })
 
   // Whether any selected/uploaded part is a cone — gates the cone
@@ -334,6 +343,7 @@ export function AutoNestPage() {
     () => packParts.some((p) => p.shapeSpec?.kind === "sector"),
     [packParts]
   )
+  const canShowPackHullOverlay = hasCones && conePackingMode === "convexHull"
 
   // PDF export consumes layouts. usePackJob owns them now; mirror the
   // hook output into a non-null array so downstream code stays simple.
@@ -348,7 +358,7 @@ export function AutoNestPage() {
   useEffect(() => {
     invalidate()
     setCutMetrics(null)
-  }, [selectedTemplates, stock, cutDirection, customCutRatios, invalidate])
+  }, [selectedTemplates, stock, cutDirection, customCutRatios, conePackingMode, invalidate])
 
   const totalRequestedCuts = useMemo(
     () => selectedTemplates.reduce((sum, t) => sum + Math.max(1, t.quantity), 0),
@@ -528,6 +538,23 @@ export function AutoNestPage() {
                 <div className="flex items-center gap-3">
                   {hasCones && (
                     <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      Cone collision
+                      <Select
+                        value={conePackingMode}
+                        onValueChange={(value) => setConePackingMode(value as ConePackingMode)}
+                      >
+                        <SelectTrigger size="sm" className="w-[138px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="convexHull">Convex hull</SelectItem>
+                          <SelectItem value="annularSector">Actual cone</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </label>
+                  )}
+                  {canShowPackHullOverlay && (
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Checkbox
                         checked={showPackHullOverlay}
                         onCheckedChange={(v) => setShowPackHullOverlay(v === true)}
@@ -558,7 +585,7 @@ export function AutoNestPage() {
                   isPacking={isPacking}
                   packError={packError}
                   onMetricsChange={setCutMetrics}
-                  showPackHullOverlay={showPackHullOverlay}
+                  showPackHullOverlay={canShowPackHullOverlay && showPackHullOverlay}
                 />
               ) : (
                 <PackPrompt

@@ -54,11 +54,11 @@ pub struct Placement {
     pub tag: Option<String>,
     /// Transformed pack polygon — the surface jagua actually
     /// collided on. Populated only when it differs from `polygon`
-    /// (today: cones, where pack = convex hull but render = annular
-    /// crescent). The visualizer can paint this as a translucent
-    /// overlay so operators can see jagua's "mental model" of the
-    /// shape. None for every shape where pack polygon == render
-    /// polygon (rects, trapezoids, circles, ngons, …).
+    /// (today: the cone convex-hull overlay in default packing). The
+    /// visualizer can paint this as a translucent overlay so operators
+    /// can see jagua's "mental model" of the shape. None for every
+    /// shape where pack polygon == render polygon, including
+    /// annular-sector cone packing.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pack_polygon: Option<Vec<Point2D>>,
 }

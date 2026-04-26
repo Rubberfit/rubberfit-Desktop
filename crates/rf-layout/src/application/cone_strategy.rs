@@ -9,11 +9,12 @@
 // — two cones whose bodies fit into each other's notches pass
 // surrogate collision and get placed overlapping in fact.
 //
-// Fix is two-fold:
+// The default fix is two-fold:
 //
-//   1. **Pack against the convex hull.** Both strategies feed jagua a
-//      convex hull of the annular sector. Jagua's surrogate is exact
-//      for convex shapes, so collision detection is correct.
+//   1. **Pack against the convex hull.** The default packing mode
+//      feeds jagua a convex hull of the annular sector. Jagua's
+//      surrogate is exact for convex shapes, so collision detection is
+//      conservative and stable.
 //
 //   2. **Strategy pattern for the render polygon.** What the
 //      visualizer paints is decoupled from what jagua collides:
@@ -21,8 +22,15 @@
 //      * `ConvexWedge` — pack and render are the same convex hull.
 //        Cones display as solid wedges. Density loss vs concave
 //        packing that would have nested them.
-//      * `AnnularSector` — pack is the convex hull; render is the
-//        real annular crescent the operator will cut. Higher fidelity.
+//      * `AnnularSector` — default pack mode is the convex hull;
+//        render is the real annular crescent the operator will cut.
+//        Higher fidelity.
+//
+// A separate `ConePackingMode::AnnularSector` opt-in lets jagua
+// receive the real annular sector as the collision polygon. jagua's
+// LBF path first uses its contained fail-fast surrogate, then
+// validates accepted samples via exact simple-polygon collision, so
+// this mode can pack cones into each other's concavities.
 //
 // Strategy choice is wire-driven via `PackRequest.cone_strategy`
 // (URL-param-resolved on the TS side). Mirrors the existing
@@ -61,22 +69,33 @@ pub enum ConeStrategyKind {
     AnnularSector,
 }
 
-/// One cone polygon strategy. `pack_polygon` is what jagua-rs uses
-/// for collision detection; `render_polygon_local` is what the
-/// visualizer should paint (in part-local coords — the pack
-/// pipeline applies the placement transform via the same
-/// `apply_dtransformation_to_point` used for the pack polygon, so
-/// pack and render polygons go through bit-identical transform
-/// math and cannot drift apart at runtime).
+/// Wire-format identifier for the cone collision polygon. Serialised
+/// on `PackRequest.cone_packing_mode`; absent means `ConvexHull`,
+/// preserving the conservative production behavior.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ConePackingMode {
+    #[default]
+    ConvexHull,
+    AnnularSector,
+}
+
+/// One cone polygon strategy. `pack_polygon` is the default convex
+/// collision surface; `render_polygon_local` is what the visualizer
+/// should paint (in part-local coords — the pack pipeline applies
+/// the placement transform via the same `apply_dtransformation_to_point`
+/// used for the pack polygon, so pack and render polygons go through
+/// bit-identical transform math and cannot drift apart at runtime).
 ///
-/// Splitting pack vs render lets us collide on a convex hull
-/// (jagua's surrogate is exact) while still rendering the real
-/// annular crescent the operator will cut.
+/// Splitting pack vs render lets the default mode collide on a
+/// convex hull (jagua's surrogate is exact) while still rendering the
+/// real annular crescent the operator will cut. `ConePackingMode`
+/// can opt sector materialization into the annular collision surface.
 pub trait ConePolygonStrategy: Send + Sync + 'static {
     /// Stable identifier for logs and parity-test assertions.
     fn name(&self) -> &'static str;
 
-    /// Convex polygon used by jagua for collision detection.
+    /// Convex polygon used by the default cone packing mode.
     /// Normalized so minX = minY = 0, CCW-wound.
     fn pack_polygon(&self, d: ConeDimensions) -> Result<Vec<Point2D>, PackError>;
 
@@ -88,14 +107,16 @@ pub trait ConePolygonStrategy: Send + Sync + 'static {
     fn render_polygon_local(&self, d: ConeDimensions) -> Option<Vec<Point2D>>;
 }
 
-/// Cones display as solid convex wedges. Pack and render are the same
-/// polygon — cheaper to draw, slight density loss vs the annular
-/// strategy when many cones could nest into each other's notches.
+/// Cones display as solid convex wedges when using the default
+/// hull-packing mode. Pack and render are the same polygon there —
+/// cheaper to draw, with density loss vs precise annular packing when
+/// many cones could nest into each other's notches.
 pub struct ConvexWedgeStrategy;
 
-/// Cones display as the real annular crescent. Pack is still the
-/// convex hull (so jagua's surrogate is exact), but render is the
-/// concave annular polygon the operator actually cuts.
+/// Cones display as the real annular crescent. In the default
+/// hull-packing mode the collision surface is still the convex hull,
+/// but render is the concave annular polygon the operator actually
+/// cuts.
 pub struct AnnularSectorStrategy;
 
 impl ConePolygonStrategy for ConvexWedgeStrategy {
@@ -206,13 +227,17 @@ pub fn cone_dims_from_part(part: &Part) -> Option<ConeDimensions> {
 /// from its shape spec. Pack pipelines call this once on entry so
 /// downstream search/jagua code can assume `Part.polygon` is `Some`.
 pub fn materialise_request_polygons(request: &mut PackRequest) -> Result<(), PackError> {
+    let cone_packing_mode = request.cone_packing_mode.unwrap_or_default();
     for part in &mut request.items {
         if part
             .shape_spec
             .as_ref()
             .is_some_and(|spec| spec.kind == "sector")
         {
-            part.polygon = Some(materialise_sector_polygon_from_spec(part)?);
+            part.polygon = Some(materialise_sector_polygon_from_spec(
+                part,
+                cone_packing_mode,
+            )?);
             continue;
         }
         if part.polygon.is_some() {
@@ -233,10 +258,13 @@ pub fn materialise_polygon(part: &Part) -> Result<Vec<Point2D>, PackError> {
     if let Some(p) = &part.polygon {
         return Ok(p.clone());
     }
-    materialise_sector_polygon_from_spec(part)
+    materialise_sector_polygon_from_spec(part, ConePackingMode::default())
 }
 
-fn materialise_sector_polygon_from_spec(part: &Part) -> Result<Vec<Point2D>, PackError> {
+fn materialise_sector_polygon_from_spec(
+    part: &Part,
+    mode: ConePackingMode,
+) -> Result<Vec<Point2D>, PackError> {
     let spec = part.shape_spec.as_ref().ok_or_else(|| {
         PackError::EngineFailed(format!(
             "part '{}' has neither polygon nor shape_spec",
@@ -246,7 +274,10 @@ fn materialise_sector_polygon_from_spec(part: &Part) -> Result<Vec<Point2D>, Pac
     match spec.kind.as_str() {
         "sector" => {
             let d = parse_cone_dimensions(spec)?;
-            build_cone_convex_hull(d)
+            match mode {
+                ConePackingMode::ConvexHull => build_cone_convex_hull(d),
+                ConePackingMode::AnnularSector => build_annular_sector_normalized(d),
+            }
         }
         other => Err(PackError::EngineFailed(format!(
             "part '{}' has shape_spec.kind '{}' but no polygon; only 'sector' is constructed Rust-side today",
@@ -410,6 +441,16 @@ mod tests {
         (a - b).abs() < eps
     }
 
+    fn polygon_area(poly: &[Point2D]) -> f64 {
+        let mut s = 0.0;
+        for i in 0..poly.len() {
+            let a = poly[i];
+            let b = poly[(i + 1) % poly.len()];
+            s += a.x * b.y - b.x * a.y;
+        }
+        s.abs() / 2.0
+    }
+
     #[test]
     fn convex_wedge_strategy_name() {
         assert_eq!(ConvexWedgeStrategy.name(), "convex_wedge");
@@ -435,6 +476,11 @@ mod tests {
     #[test]
     fn default_strategy_kind_is_annular_sector() {
         assert_eq!(ConeStrategyKind::default(), ConeStrategyKind::AnnularSector);
+    }
+
+    #[test]
+    fn default_packing_mode_is_convex_hull() {
+        assert_eq!(ConePackingMode::default(), ConePackingMode::ConvexHull);
     }
 
     #[test]
@@ -743,6 +789,88 @@ mod tests {
     }
 
     #[test]
+    fn materialise_request_polygons_defaults_to_convex_hull_mode() {
+        let mut params = HashMap::new();
+        params.insert("innerRadius".into(), serde_json::json!(3.0));
+        params.insert("outerRadius".into(), serde_json::json!(6.0));
+        params.insert("arcDegrees".into(), serde_json::json!(120.0));
+        let mut request = PackRequest {
+            bins: Vec::new(),
+            clearance: 0.0,
+            items: vec![Part {
+                shape_id: "cone-default".into(),
+                quantity: 1,
+                polygon: None,
+                shape_spec: Some(ShapeSpec {
+                    kind: "sector".into(),
+                    params,
+                }),
+                allow_rotation: true,
+                grain_axis: None,
+                difficulty: None,
+                tag: None,
+            }],
+            operator_profile: None,
+            mode: None,
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: None,
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+        };
+
+        materialise_request_polygons(&mut request).unwrap();
+
+        let expected = build_cone_convex_hull(dims(3.0, 6.0, 120.0, 24)).unwrap();
+        let got = request.items[0].polygon.as_ref().expect("materialised");
+        assert_eq!(got.len(), 27);
+        assert!(approx_eq(polygon_area(got), polygon_area(&expected), 1e-9));
+    }
+
+    #[test]
+    fn materialise_request_polygons_can_use_annular_sector_mode() {
+        let mut params = HashMap::new();
+        params.insert("innerRadius".into(), serde_json::json!(3.0));
+        params.insert("outerRadius".into(), serde_json::json!(6.0));
+        params.insert("arcDegrees".into(), serde_json::json!(120.0));
+        let mut request = PackRequest {
+            bins: Vec::new(),
+            clearance: 0.0,
+            items: vec![Part {
+                shape_id: "cone-annular".into(),
+                quantity: 1,
+                polygon: None,
+                shape_spec: Some(ShapeSpec {
+                    kind: "sector".into(),
+                    params,
+                }),
+                allow_rotation: true,
+                grain_axis: None,
+                difficulty: None,
+                tag: None,
+            }],
+            operator_profile: None,
+            mode: None,
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: None,
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: Some(ConePackingMode::AnnularSector),
+        };
+
+        materialise_request_polygons(&mut request).unwrap();
+
+        let expected = build_annular_sector_normalized(dims(3.0, 6.0, 120.0, 24)).unwrap();
+        let got = request.items[0].polygon.as_ref().expect("materialised");
+        assert_eq!(got.len(), 50);
+        assert!(approx_eq(polygon_area(got), polygon_area(&expected), 1e-9));
+    }
+
+    #[test]
     fn materialise_request_polygons_replaces_legacy_sector_polygon_with_hull() {
         let mut params = HashMap::new();
         params.insert("innerRadius".into(), serde_json::json!(3.0));
@@ -773,6 +901,7 @@ mod tests {
             seed: None,
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         };
 
         materialise_request_polygons(&mut request).unwrap();
@@ -781,6 +910,49 @@ mod tests {
             request.items[0].polygon.as_ref().map(Vec::len),
             Some(27),
             "sector pack polygon should be convex hull even when a legacy annular polygon was supplied"
+        );
+    }
+
+    #[test]
+    fn materialise_request_polygons_replaces_legacy_sector_polygon_with_annular_when_opted_in() {
+        let mut params = HashMap::new();
+        params.insert("innerRadius".into(), serde_json::json!(3.0));
+        params.insert("outerRadius".into(), serde_json::json!(6.0));
+        params.insert("arcDegrees".into(), serde_json::json!(120.0));
+        let legacy_hull = build_cone_convex_hull(dims(3.0, 6.0, 120.0, 24)).unwrap();
+        let mut request = PackRequest {
+            bins: Vec::new(),
+            clearance: 0.0,
+            items: vec![Part {
+                shape_id: "cone-legacy".into(),
+                quantity: 1,
+                polygon: Some(legacy_hull),
+                shape_spec: Some(ShapeSpec {
+                    kind: "sector".into(),
+                    params,
+                }),
+                allow_rotation: true,
+                grain_axis: None,
+                difficulty: None,
+                tag: None,
+            }],
+            operator_profile: None,
+            mode: None,
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: None,
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: Some(ConePackingMode::AnnularSector),
+        };
+
+        materialise_request_polygons(&mut request).unwrap();
+
+        assert_eq!(
+            request.items[0].polygon.as_ref().map(Vec::len),
+            Some(50),
+            "annular-sector pack mode should use the real concave sector"
         );
     }
 
@@ -807,5 +979,15 @@ mod tests {
         assert_eq!(s, "\"convexWedge\"");
         let k: ConeStrategyKind = serde_json::from_str("\"annularSector\"").unwrap();
         assert_eq!(k, ConeStrategyKind::AnnularSector);
+    }
+
+    #[test]
+    fn cone_packing_mode_serialises_camel_case() {
+        let s = serde_json::to_string(&ConePackingMode::AnnularSector).unwrap();
+        assert_eq!(s, "\"annularSector\"");
+        let s = serde_json::to_string(&ConePackingMode::ConvexHull).unwrap();
+        assert_eq!(s, "\"convexHull\"");
+        let k: ConePackingMode = serde_json::from_str("\"annularSector\"").unwrap();
+        assert_eq!(k, ConePackingMode::AnnularSector);
     }
 }

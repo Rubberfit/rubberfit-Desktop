@@ -22,8 +22,9 @@ export interface BuildPartInput {
 
 export function buildPart(input: BuildPartInput): Part {
   // Cones (sector shape spec): polygon construction lives in Rust now
-  // — both the convex hull jagua collides on AND the annular crescent
-  // the visualizer paints. TS ships the dimensions only.
+  // — both the pack polygon jagua collides on (convex hull by default,
+  // annular sector when opted in) and the render polygon the visualizer
+  // paints. TS ships the dimensions only.
   // See `crates/rf-layout/src/application/cone_strategy.rs`.
   if (input.shapeSpec?.kind === "sector") {
     return {

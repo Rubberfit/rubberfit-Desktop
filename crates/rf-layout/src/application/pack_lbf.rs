@@ -181,6 +181,7 @@ pub fn pack_lbf_with_config(
                 &request.items,
                 &bin.bin_id,
                 request.cone_strategy.unwrap_or_default(),
+                request.cone_packing_mode.unwrap_or_default(),
             );
 
             for p in placements_this_bin {
@@ -318,6 +319,7 @@ fn snapshot_to_placements(
     items: &[crate::domain::Part],
     bin_id: &str,
     cone_strategy_kind: crate::application::cone_strategy::ConeStrategyKind,
+    cone_packing_mode: crate::application::cone_strategy::ConePackingMode,
 ) -> Vec<Placement> {
     let mut entries: Vec<&PlacedItem> = snap.placed_items.values().collect();
     entries.sort_by_key(|pi| {
@@ -362,6 +364,12 @@ fn snapshot_to_placements(
         // non-trivial rotations.
         let (polygon, placement_pack_polygon) =
             match crate::application::cone_strategy::cone_dims_from_part(part) {
+                Some(_)
+                    if cone_packing_mode
+                        == crate::application::cone_strategy::ConePackingMode::AnnularSector =>
+                {
+                    (pack_polygon, None)
+                }
                 Some(d) => match cone_strategy.render_polygon_local(d) {
                     Some(local) => {
                         let render: Vec<Point2D> = local
@@ -482,6 +490,7 @@ mod tests {
             seed: Some(42),
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         }
     }
 

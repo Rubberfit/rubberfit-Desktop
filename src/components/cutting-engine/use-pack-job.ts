@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { getPackingService } from "@/lib/packing/service-compat"
 import { buildPackRequest } from "@/lib/packing/buildPackRequest"
-import type { Bin, ConeStrategy, PackRequest, Part } from "@/lib/packing/types"
+import type { Bin, ConePackingMode, ConeStrategy, PackRequest, Part } from "@/lib/packing/types"
 import type { PartTemplate } from "./preset-template-data"
 import type { LayoutModel } from "./layout-model"
 import { packResultToLayoutModel } from "./pack-result-to-layout-model"
@@ -30,6 +30,22 @@ function getConeStrategyFromUrl(): ConeStrategy | undefined {
   if (typeof window === "undefined") return undefined
   const v = new URLSearchParams(window.location.search).get("cone")
   if (v === "convex-wedge" || v === "convexWedge") return "convexWedge"
+  if (v === "annular-sector" || v === "annularSector") return "annularSector"
+  return undefined
+}
+
+/**
+ * Resolve the cone collision polygon from the `?conePacking=` URL param.
+ *
+ * Accepted values: `convex-hull` / `convexHull` -> `"convexHull"`;
+ * `annular-sector` / `annularSector` -> `"annularSector"`.
+ * Anything else (or no window) -> undefined, which Rust treats as
+ * `convexHull` to preserve current production behavior.
+ */
+function getConePackingModeFromUrl(): ConePackingMode | undefined {
+  if (typeof window === "undefined") return undefined
+  const v = new URLSearchParams(window.location.search).get("conePacking")
+  if (v === "convex-hull" || v === "convexHull") return "convexHull"
   if (v === "annular-sector" || v === "annularSector") return "annularSector"
   return undefined
 }
@@ -60,6 +76,13 @@ export interface UsePackJobInput {
    * `crates/rf-layout/src/application/cone_strategy.rs`.
    */
   coneStrategy?: ConeStrategy
+  /**
+   * Collision polygon for cone (sector) shapes. Forwarded as
+   * `PackRequest.conePackingMode`; when omitted, falls back to the
+   * `?conePacking=convex-hull|annular-sector` URL param, then Rust's
+   * default (`convexHull`).
+   */
+  conePackingMode?: ConePackingMode
 }
 
 export interface UsePackJobOutput {
@@ -86,6 +109,7 @@ export function usePackJob({
   tagByShapeId,
   enabled,
   coneStrategy,
+  conePackingMode,
 }: UsePackJobInput): UsePackJobOutput {
   const [layouts, setLayouts] = useState<LayoutModel[] | null>(null)
   const [isPacking, setIsPacking] = useState(false)
@@ -116,8 +140,9 @@ export function usePackJob({
         })),
         clearance,
         coneStrategy: coneStrategy ?? null,
+        conePackingMode: conePackingMode ?? null,
       }),
-    [bins, parts, clearance, coneStrategy]
+    [bins, parts, clearance, coneStrategy, conePackingMode]
   )
 
   // Track latest run so a stale resolve doesn't clobber a newer run's
@@ -158,7 +183,16 @@ export function usePackJob({
 
       // UI-selected strategy wins; URL param is the dev / power-user
       // override when no UI value is supplied.
-      const resolvedConeStrategy = coneStrategy ?? getConeStrategyFromUrl()
+      const resolvedConePackingMode = conePackingMode ?? getConePackingModeFromUrl()
+      if (resolvedConePackingMode) request.conePackingMode = resolvedConePackingMode
+
+      // Precise annular packing must render the same annular polygon
+      // jagua collides on. Otherwise the render-strategy URL remains
+      // the dev / power-user override.
+      const resolvedConeStrategy =
+        resolvedConePackingMode === "annularSector"
+          ? "annularSector"
+          : (coneStrategy ?? getConeStrategyFromUrl())
       if (resolvedConeStrategy) request.coneStrategy = resolvedConeStrategy
 
       try {

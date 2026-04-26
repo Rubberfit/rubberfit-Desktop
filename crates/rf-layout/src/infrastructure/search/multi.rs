@@ -463,6 +463,7 @@ mod tests {
             seed: Some(42),
             units: Default::default(),
             cone_strategy: None,
+            cone_packing_mode: None,
         }
     }
 

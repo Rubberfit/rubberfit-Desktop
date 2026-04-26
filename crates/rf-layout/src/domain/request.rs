@@ -135,6 +135,13 @@ pub struct PackRequest {
     /// rebuilding — see `application::cone_strategy`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cone_strategy: Option<crate::application::cone_strategy::ConeStrategyKind>,
+    /// Collision polygon for cone (sector) shapes. None defaults to
+    /// `ConePackingMode::ConvexHull`, preserving conservative
+    /// hull-based packing. `AnnularSector` opts into jagua's exact
+    /// simple-polygon collision path so cones may nest into each
+    /// other's concavities.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub cone_packing_mode: Option<crate::application::cone_strategy::ConePackingMode>,
 }
 
 pub const FAST_MS: u64 = 2_000;

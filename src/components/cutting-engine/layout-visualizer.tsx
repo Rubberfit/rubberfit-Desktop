@@ -305,7 +305,7 @@ function SheetHeader({
 // ── Legend ────────────────────────────────────────────────────────────────
 
 function Legend({ layouts }: { layouts: LayoutModel[] }) {
-  // Distinct (label, partNumber) pairs across all sheets, in first-encounter order.
+  // Distinct (label, partNumber) pairs across all sheets.
   const seen = new Map<string, string>()
   for (const layout of layouts) {
     for (const part of layout.parts) {
@@ -318,9 +318,12 @@ function Legend({ layouts }: { layouts: LayoutModel[] }) {
   if (seen.size === 0) return null
   return (
     <div className="flex flex-wrap gap-3 border-b border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
-      {[...seen.entries()].map(([tag, label]) => (
+      {[...seen.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([tag, label]) => (
         <span key={tag} className="flex items-center gap-1.5">
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-foreground text-[10px] font-bold text-background">
+          <span
+            className="inline-flex h-5 w-5 items-center justify-center rounded border text-[10px] font-bold leading-none shadow-sm"
+            style={tagPillStyle(tag)}
+          >
             {tag}
           </span>
           <span>{label}</span>
@@ -330,24 +333,75 @@ function Legend({ layouts }: { layouts: LayoutModel[] }) {
   )
 }
 
+const TAG_PILL_COLORS = [
+  { backgroundColor: "#2563eb", borderColor: "#1d4ed8", color: "#ffffff" },
+  { backgroundColor: "#059669", borderColor: "#047857", color: "#ffffff" },
+  { backgroundColor: "#7c3aed", borderColor: "#6d28d9", color: "#ffffff" },
+  { backgroundColor: "#be123c", borderColor: "#9f1239", color: "#ffffff" },
+  { backgroundColor: "#0f766e", borderColor: "#115e59", color: "#ffffff" },
+  { backgroundColor: "#c2410c", borderColor: "#9a3412", color: "#ffffff" },
+  { backgroundColor: "#4f46e5", borderColor: "#4338ca", color: "#ffffff" },
+  { backgroundColor: "#a21caf", borderColor: "#86198f", color: "#ffffff" },
+  { backgroundColor: "#0369a1", borderColor: "#075985", color: "#ffffff" },
+  { backgroundColor: "#4d7c0f", borderColor: "#3f6212", color: "#ffffff" },
+]
+
+function tagPillStyle(tag: string) {
+  let hash = 0
+  for (let i = 0; i < tag.length; i += 1) {
+    hash = (hash * 31 + tag.charCodeAt(i)) >>> 0
+  }
+  return TAG_PILL_COLORS[hash % TAG_PILL_COLORS.length]
+}
+
 // ── Footer (per-sheet totals) ─────────────────────────────────────────────
 
 function SheetMetricsFooter({ totals }: { totals: Totals }) {
   return (
-    <div className="grid grid-cols-2 gap-3 border-t border-border bg-muted/30 px-4 py-3 text-xs sm:grid-cols-4">
-      <Metric label="Stock" value={`${totals.stockSqFt.toFixed(2)} sq ft`} />
-      <Metric label="Used" value={`${totals.usedSqFt.toFixed(2)} sq ft`} />
-      <Metric label="Reusable offcut" value={`${totals.reusableSqFt.toFixed(2)} sq ft`} />
-      <Metric label="Scrap" value={`${totals.scrapSqFt.toFixed(2)} sq ft`} />
+    <div className="grid grid-cols-2 gap-3 border-t border-border bg-background px-4 py-4 sm:grid-cols-4">
+      <Metric tone="stock" label="Stock" value={`${totals.stockSqFt.toFixed(2)} sq ft`} />
+      <Metric tone="used" label="Used" value={`${totals.usedSqFt.toFixed(2)} sq ft`} />
+      <Metric
+        tone="reusable"
+        label="Reusable offcut"
+        value={`${totals.reusableSqFt.toFixed(2)} sq ft`}
+      />
+      <Metric tone="scrap" label="Scrap" value={`${totals.scrapSqFt.toFixed(2)} sq ft`} />
     </div>
   )
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+type MetricTone = "stock" | "used" | "reusable" | "scrap"
+
+const METRIC_TONE_CLASSES: Record<MetricTone, { card: string; value: string }> = {
+  stock: {
+    card: "border-sky-200/70 bg-sky-50/70 dark:border-sky-800/50 dark:bg-sky-950/25",
+    value: "text-sky-700 dark:text-sky-300",
+  },
+  used: {
+    card: "border-emerald-200/70 bg-emerald-50/70 dark:border-emerald-800/50 dark:bg-emerald-950/25",
+    value: "text-emerald-700 dark:text-emerald-300",
+  },
+  reusable: {
+    card: "border-amber-200/80 bg-amber-50/75 dark:border-amber-800/50 dark:bg-amber-950/25",
+    value: "text-amber-700 dark:text-amber-300",
+  },
+  scrap: {
+    card: "border-rose-200/80 bg-rose-50/75 dark:border-rose-800/50 dark:bg-rose-950/25",
+    value: "text-rose-700 dark:text-rose-300",
+  },
+}
+
+function Metric({ label, value, tone }: { label: string; value: string; tone: MetricTone }) {
+  const classes = METRIC_TONE_CLASSES[tone]
   return (
-    <div>
-      <div className="text-muted-foreground">{label}</div>
-      <div className="font-semibold text-foreground">{value}</div>
+    <div className={`rounded-lg border p-3 ${classes.card}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+        {label}
+      </div>
+      <div className={`mt-1 text-xl font-semibold leading-tight sm:text-2xl ${classes.value}`}>
+        {value}
+      </div>
     </div>
   )
 }
@@ -578,20 +632,22 @@ function SheetSvg({
               key={`scrap-${i}`}
               region={region}
               fill={`url(#${wasteId})`}
-              stroke={SCRAP_PATTERN_BASE}
               layout={layout}
               cutouts={model.parts}
             />
           ))}
-          {/* Reusable offcuts (amber). */}
+          {/* Reusable offcuts (amber). Each gets its W × L printed at
+              the centre so the operator can size the leftover at a glance. */}
           {model.offcuts.map((region, i) => (
-            <RegionShape
-              key={`offcut-${i}`}
-              region={region}
-              fill={`url(#${offcutId})`}
-              stroke={OFFCUT_PATTERN_BASE}
-              layout={layout}
-            />
+            <React.Fragment key={`offcut-${i}`}>
+              <RegionShape
+                region={region}
+                fill={`url(#${offcutId})`}
+                stroke={OFFCUT_PATTERN_BASE}
+                layout={layout}
+              />
+              <OffcutLabel region={region} layout={layout} />
+            </React.Fragment>
           ))}
           {/* Debug overlay: inscribed Scrap-classified rects, dashed
               darker-red outline. Only rendered when the operator
@@ -634,15 +690,17 @@ function SheetSvg({
 // ── Region renderer (offcut + scrap) ──────────────────────────────────────
 
 /**
- * Pattern base colours (must match the `<rect fill="...">` inside each
- * pattern in `PatternDefs` below). Passed as `stroke` on scrap and
- * offcut shapes so the 1-pixel anti-aliased rim of each region paints
- * the pattern's base colour rather than letting the underlying stock
- * pattern (#f5f5f4 — near-white) bleed through. Without this the rim
- * reads as a thin white outline around every region and a white seam
- * between adjacent regions.
+ * Offcut pattern base colour (must match the `<rect fill="...">` inside
+ * the offcut pattern in `PatternDefs` below). Passed as `stroke` on
+ * offcut shapes so the 1-pixel anti-aliased rim paints the pattern's
+ * base colour rather than letting the underlying stock pattern
+ * (#f5f5f4 — near-white) bleed through as a thin white seam.
+ *
+ * Scrap regions intentionally render without a stroke: a light-red
+ * rim around every scrap polygon read as if the offcut/sheet borders
+ * themselves were classified as waste. The faint anti-aliased seam
+ * against the stock pattern is the accepted tradeoff.
  */
-const SCRAP_PATTERN_BASE = "#fee2e2"
 const OFFCUT_PATTERN_BASE = "#fef3c7"
 
 /**
@@ -759,6 +817,34 @@ function RegionShape({
         />
       )}
     </>
+  )
+}
+
+// Below this on-screen min dimension, an offcut is too small to host
+// readable text — the label is suppressed so the surface stays clean.
+const OFFCUT_LABEL_MIN_PX = 36
+
+function OffcutLabel({ region, layout }: { region: LayoutRegion; layout: SheetLayout }) {
+  const minPx = Math.min(region.width, region.height) * layout.scale
+  if (minPx < OFFCUT_LABEL_MIN_PX) return null
+  const cx = layout.surfaceX + (region.x + region.width / 2) * layout.scale
+  const cy = layout.surfaceY + (region.y + region.height / 2) * layout.scale
+  // Same clamp shape as PartShape (10-18 px, 32% of the smaller side)
+  // so offcut and part labels share visual rhythm.
+  const fontSize = Math.max(8, Math.min(12, minPx * 0.2))
+  return (
+    <text
+      x={cx}
+      y={cy}
+      textAnchor="middle"
+      dominantBaseline="central"
+      fill="#000"
+      fontSize={fontSize}
+      fontWeight="600"
+      style={{ pointerEvents: "none", userSelect: "none" }}
+    >
+      {`${formatInches(region.width)}" × ${formatInches(region.height)}"`}
+    </text>
   )
 }
 

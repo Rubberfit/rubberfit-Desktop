@@ -102,12 +102,15 @@ pub fn pack_lbf_with_config(
 
     let instance = to_jagua_instance(&request.bins, &request.items, request.clearance)?;
 
-    // Honour the caller's time_budget_ms if supplied. We stop launching
-    // new multistart attempts once the deadline elapses â€” the best
-    // result so far is returned. At least one attempt always runs.
-    let deadline = request
-        .time_budget_ms
-        .map(|ms| started_at + std::time::Duration::from_millis(ms));
+    // Honour the caller's time budget. We stop launching new multistart
+    // attempts once the deadline elapses — the best result so far is
+    // returned. At least one attempt always runs.
+    // `resolved_time_budget_ms` covers both an explicit `time_budget_ms`
+    // AND the mode-based fallback (Fast=2s, Balanced=10s, Thorough=30s);
+    // reading the raw field alone would skip the deadline whenever the
+    // caller specified a mode without an explicit ms.
+    let deadline =
+        started_at + std::time::Duration::from_millis(request.resolved_time_budget_ms());
 
     // Deterministic seed sequence from the caller's (optional) base seed.
     // Falls back to a fixed 42 when the request omits the seed so results
@@ -130,7 +133,7 @@ pub fn pack_lbf_with_config(
     for (attempts_run, seed) in seeds.into_iter().enumerate() {
         // Deadline check â€” but always run the first attempt so the
         // caller gets a valid result even if the budget is too tight.
-        if attempts_run > 0 && deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+        if attempts_run > 0 && std::time::Instant::now() >= deadline {
             break;
         }
 

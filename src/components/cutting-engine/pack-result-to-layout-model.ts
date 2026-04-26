@@ -17,7 +17,6 @@ import type {
   PackRequest,
   PackResult,
   Placement,
-  Point2D,
 } from "@/lib/packing/types"
 
 // PartTemplate.partType ("rectangle" / "circle" / "cylinder" / "cone"
@@ -73,16 +72,24 @@ export function packResultToLayoutModel(
     const offcuts: LayoutRegion[] =
       binResult?.offcuts.filter((o) => o.kind === "reusable").map(offcutToRegion) ?? []
 
-    // Scrap = the bin-wide `freeRegions` polygon (one continuous red
-    // layer per disjoint scrap cluster). Scrap-classified inscribed
-    // rects from the Rust pipeline are NOT mixed in here — that
-    // produced visible faint-rectangle outlines overlapping the
-    // polygon. They're routed to `debugScrapRects` for the optional
-    // overlay instead.
+    // Scrap = inscribed rects classified as Scrap (below the reusable
+    // threshold) from the Rust `extract_offcuts_with_obstacles` pass.
+    // Earlier this was the bin-wide `freeRegions` polygon, but that
+    // painted the entire `stock − parts` area red and relied on the
+    // amber offcut rects to visually cover the reusable portion. The
+    // offcut rects are quantized to the Rust 0.25" grid sampler,
+    // which leaves a sub-quarter-inch residual sliver between each
+    // rect and the exact freeRegion polygon edge. That sliver
+    // rendered as a misleading red rim around every reusable offcut
+    // and along the sheet perimeter. Switching to the rect list
+    // drops the residual entirely — those slivers fall back to the
+    // stock pattern, and only meaningful scrap chunks stay red.
     const scrap: LayoutRegion[] =
-      binResult?.freeRegions.map((poly) => polygonToRegion(poly)) ?? []
-    const debugScrapRects: LayoutRegion[] =
       binResult?.offcuts.filter((o) => o.kind === "scrap").map(offcutToRegion) ?? []
+    // debugScrapRects mirrors scrap now — kept so the existing
+    // "Show inscribed rects" debug toggle in AutoNest still draws
+    // its dashed outline on top of the red fill.
+    const debugScrapRects: LayoutRegion[] = scrap
 
     const usedSqFt = (binResult?.usedArea ?? 0) / 144
     // Reusable area = sum of reusable offcut bboxes, capped at the
@@ -163,28 +170,6 @@ function placementToPlacedPart(
 
 function offcutToRegion(o: ClassifiedOffcut): LayoutRegion {
   return { x: o.x, y: o.y, width: o.width, height: o.height }
-}
-
-function polygonToRegion(poly: Point2D[]): LayoutRegion {
-  // bbox of the polygon — the renderer uses width/height as a fallback
-  // when polygon-aware drawing isn't available.
-  let minX = Infinity
-  let minY = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
-  for (const pt of poly) {
-    if (pt.x < minX) minX = pt.x
-    if (pt.y < minY) minY = pt.y
-    if (pt.x > maxX) maxX = pt.x
-    if (pt.y > maxY) maxY = pt.y
-  }
-  return {
-    x: minX,
-    y: minY,
-    width: maxX - minX,
-    height: maxY - minY,
-    polygon: poly,
-  }
 }
 
 // Generates A, B, C, …, Z, AA, AB, … from a 0-indexed counter — same

@@ -403,11 +403,14 @@ fn pack_lbf_lns_single_bin(
             }
 
             // If we've hit the wall-clock budget from the original
-            // request, stop growing.
-            if let Some(budget_ms) = request.time_budget_ms {
-                if started_at.elapsed() >= Duration::from_millis(budget_ms) {
-                    break 'outer;
-                }
+            // request, stop growing. `resolved_time_budget_ms` honours
+            // both an explicit `time_budget_ms` AND the mode-based
+            // fallback (Fast=2s, Balanced=10s, Thorough=30s) — reading
+            // the raw field alone would skip the deadline whenever the
+            // caller specified a mode without an explicit ms.
+            let budget_ms = request.resolved_time_budget_ms();
+            if started_at.elapsed() >= Duration::from_millis(budget_ms) {
+                break 'outer;
             }
         }
     }

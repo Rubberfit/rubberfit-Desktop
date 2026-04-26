@@ -135,10 +135,28 @@ fn build_ext_item(id: u64, part: &Part) -> Result<BpExtItem, PackError> {
         .map(|p| Ok((finite_f32(p.x, "polygon.x")?, finite_f32(p.y, "polygon.y")?)))
         .collect::<Result<_, PackError>>()?;
 
-    // `allow_rotation = true`  -> continuous rotation (omit allowed_orientations).
-    // `allow_rotation = false` -> fixed at 0 degrees (single-angle list).
+    // Rotation policy:
+    //   `allow_rotation = false` -> fixed at 0 degrees.
+    //   `allow_rotation = true`  -> per-kind allowed set:
+    //     - "rect" (covers user rectangles AND unrolled cylinders, which
+    //        the TS layer ships as kind "rect" with width = π·d): only
+    //        0 and 90° — a rectangle is 180°-symmetric, so the other two
+    //        cardinals are equivalence-class duplicates that would just
+    //        feed jagua redundant solver iterations.
+    //     - "trapezoid": all four cardinals — no rotational symmetry.
+    //     - everything else (sector / circle / ngon / raw polygon with
+    //        no shape_spec): continuous rotation, the prior behaviour.
+    //
+    // IMPORTANT: jagua-rs `allowed_orientations` is interpreted as
+    // DEGREES on import (see jagua-rs `io/import.rs`: it pipes each
+    // value through `f32::to_radians()` when building the internal
+    // `RotationRange::Discrete`). Pass degrees here.
     let allowed_orientations = if part.allow_rotation {
-        None
+        match part.shape_spec.as_ref().map(|s| s.kind.as_str()) {
+            Some("rect") => Some(vec![0.0, 90.0]),
+            Some("trapezoid") => Some(vec![0.0, 90.0, 180.0, 270.0]),
+            _ => None,
+        }
     } else {
         Some(vec![0.0])
     };
@@ -279,5 +297,67 @@ mod tests {
             r.is_ok(),
             "allow_rotation=false should convert cleanly (single fixed angle)"
         );
+    }
+
+    // ── Per-kind rotation policy ─────────────────────────────────────
+    //
+    // These tests pin the contract `build_ext_item` exposes to jagua:
+    // rect (and unrolled cylinders) → 2 cardinals; trapezoid → 4
+    // cardinals; everything else (circle, sector, ngon, raw polygon
+    // with no shape_spec) → continuous. Regressing any of these silently
+    // would reintroduce the oblique-angle nesting the user reported.
+
+    fn part_with_kind(kind: &str) -> Part {
+        let mut p = test_rect_part();
+        p.shape_spec = Some(crate::domain::ShapeSpec {
+            kind: kind.into(),
+            params: std::collections::HashMap::new(),
+        });
+        p
+    }
+
+    #[test]
+    fn rect_kind_emits_two_cardinal_orientations_in_degrees() {
+        // jagua-rs treats allowed_orientations as degrees and converts
+        // to radians on import — the values here MUST be in degrees.
+        let item = build_ext_item(0, &part_with_kind("rect")).expect("build_ext_item ok");
+        assert_eq!(item.base.allowed_orientations, Some(vec![0.0, 90.0]));
+    }
+
+    #[test]
+    fn trapezoid_kind_emits_four_cardinal_orientations_in_degrees() {
+        let item = build_ext_item(0, &part_with_kind("trapezoid")).expect("build_ext_item ok");
+        assert_eq!(
+            item.base.allowed_orientations,
+            Some(vec![0.0, 90.0, 180.0, 270.0]),
+        );
+    }
+
+    #[test]
+    fn circle_kind_keeps_continuous_rotation() {
+        let item = build_ext_item(0, &part_with_kind("circle")).expect("build_ext_item ok");
+        assert_eq!(item.base.allowed_orientations, None);
+    }
+
+    #[test]
+    fn sector_kind_keeps_continuous_rotation() {
+        let item = build_ext_item(0, &part_with_kind("sector")).expect("build_ext_item ok");
+        assert_eq!(item.base.allowed_orientations, None);
+    }
+
+    #[test]
+    fn polygon_only_part_keeps_continuous_rotation() {
+        // No shape_spec — caller shipped a raw polygon (DXF / free-roam
+        // custom shape). Stays continuous.
+        let item = build_ext_item(0, &test_rect_part()).expect("build_ext_item ok");
+        assert_eq!(item.base.allowed_orientations, None);
+    }
+
+    #[test]
+    fn rect_with_allow_rotation_false_locks_to_zero() {
+        let mut part = part_with_kind("rect");
+        part.allow_rotation = false;
+        let item = build_ext_item(0, &part).expect("build_ext_item ok");
+        assert_eq!(item.base.allowed_orientations, Some(vec![0.0]));
     }
 }

@@ -98,6 +98,20 @@ const MIN_VISIBLE_SCRAP_SQIN: f64 = 2.0;
 /// threshold so quantization can never push a reusable rect into scrap.
 const INSCRIBED_GRID_STEP: f64 = 0.25;
 
+/// Per-bin wall-clock cap for the iterative inscribed-rect extractor.
+/// `largest_inscribed_rect_avoiding` is O(rows × cols × |obstacles| ×
+/// |vertices|) per call and is invoked up to MAX_OFFCUTS_PER_BIN times
+/// over a `working` polygon set that grows as each diff produces
+/// residual fragments. For obstacle-heavy bins (e.g. a 48×48 sheet
+/// with 12 placed circles in debug builds) this can run for minutes
+/// without ever placing all 16 offcuts. We bail and return whatever
+/// offcuts we've already classified — the residual area still gets
+/// painted via the bin-wide `stock − parts` polygon, so the visualizer
+/// only loses the amber rectangles for shapes the extractor didn't
+/// reach in time. Production typically finishes in well under 100 ms;
+/// 500 ms is a safety net for pathological obstacle arrangements.
+const MAX_OFFCUT_EXTRACT_MS: u64 = 500;
+
 /// Pre-fix scrap pipeline. `clip_difference(stock, placed_polygons)`
 /// + iterative inscribed-rect classification. Kept as the
 /// `LegacyScrapStrategy` body for A/B and rollback; the production
@@ -398,8 +412,21 @@ fn extract_offcuts_with_obstacles(
 ) -> Vec<ClassifiedOffcut> {
     let mut working: Vec<Polygon> = free_regions.to_vec();
     let mut offcuts: Vec<ClassifiedOffcut> = Vec::new();
+    let started_at = std::time::Instant::now();
+    let extract_deadline =
+        started_at + std::time::Duration::from_millis(MAX_OFFCUT_EXTRACT_MS);
 
     while offcuts.len() < MAX_OFFCUTS_PER_BIN && !working.is_empty() {
+        // Per-bin extraction deadline. `largest_inscribed_rect_avoiding`
+        // is O(cells × obstacles × vertices) per call and is invoked
+        // for every polygon in `working` every iteration; the working
+        // set grows with each diff. Without this bail, obstacle-heavy
+        // bins (12+ circles on a 48×48 sheet) can spin for minutes
+        // in debug builds. Partial offcuts is acceptable — the
+        // bin-wide scrap polygon still covers the residual visually.
+        if std::time::Instant::now() >= extract_deadline {
+            break;
+        }
         // Find the polygon with the largest inscribed rect.
         let mut best: Option<(usize, rf_geom::domain::Rect)> = None;
         for (i, poly) in working.iter().enumerate() {

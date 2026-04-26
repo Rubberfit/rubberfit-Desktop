@@ -141,6 +141,7 @@ pub fn pack_lbf_lns_with_config(
             units: request.units,
             cone_strategy: request.cone_strategy,
             cone_packing_mode: request.cone_packing_mode,
+            scrap_strategy: request.scrap_strategy,
         };
 
         let sub_result = pack_lbf_lns_single_bin(sub_request, cfg.clone())?;
@@ -921,6 +922,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: None,
+            scrap_strategy: None,
         }
     }
 

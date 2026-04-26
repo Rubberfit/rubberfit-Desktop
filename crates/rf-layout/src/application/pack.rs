@@ -302,6 +302,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: None,
+            scrap_strategy: None,
         };
         assert!(matches!(pack(req), Err(PackError::NoBins)));
     }
@@ -321,6 +322,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: None,
+            scrap_strategy: None,
         };
         assert!(matches!(pack(req), Err(PackError::NoItems)));
     }
@@ -340,6 +342,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: None,
+            scrap_strategy: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 3);
@@ -363,6 +366,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: None,
+            scrap_strategy: None,
         };
         let result = pack(req).unwrap();
         let a_indices: Vec<u32> = result
@@ -397,6 +401,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: None,
+            scrap_strategy: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 2);
@@ -418,6 +423,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: None,
+            scrap_strategy: None,
         };
         let result = pack(req).unwrap();
         assert!(
@@ -458,6 +464,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: None,
+            scrap_strategy: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(
@@ -483,6 +490,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: None,
+            scrap_strategy: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 3);

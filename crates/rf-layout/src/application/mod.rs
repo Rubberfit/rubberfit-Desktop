@@ -7,6 +7,7 @@ pub mod pack;
 pub mod pack_lbf;
 pub mod pack_lbf_lns;
 pub mod polish;
+pub mod scrap_strategy;
 pub mod strategy;
 
 pub use cone_strategy::{
@@ -19,4 +20,8 @@ pub use pack::pack;
 pub use pack_lbf::{pack_lbf, pack_lbf_with_config, PackLbfConfig};
 pub use pack_lbf_lns::{pack_lbf_lns, pack_lbf_lns_with_config, PackLbfLnsConfig};
 pub use polish::{polish_placements, polish_score, PolishConfig, PolishScore};
+pub use scrap_strategy::{
+    scrap_strategy_for, LegacyScrapStrategy, ScrapStrategy, ScrapStrategyKind,
+    TwoSignalScrapStrategy,
+};
 pub use strategy::{strategy_for, LbfLnsStrategy, LbfStrategy, LegacyStrategy, NestingStrategy};

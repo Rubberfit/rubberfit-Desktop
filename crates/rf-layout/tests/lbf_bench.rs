@@ -199,6 +199,7 @@ fn pack_lbf_lns_vs_pack_lbf_on_production_fixture() {
         units: Default::default(),
         cone_strategy: None,
         cone_packing_mode: None,
+        scrap_strategy: None,
     };
 
     println!(
@@ -284,6 +285,7 @@ fn pack_lbf_two_bin_fab_score_comparison() {
         units: Default::default(),
         cone_strategy: None,
         cone_packing_mode: None,
+        scrap_strategy: None,
     };
 
     println!(
@@ -395,6 +397,7 @@ fn pack_lbf_vs_pack_on_production_fixture() {
         units: Default::default(),
         cone_strategy: None,
         cone_packing_mode: None,
+        scrap_strategy: None,
     };
 
     println!(

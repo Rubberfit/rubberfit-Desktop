@@ -165,7 +165,8 @@ where
 {
     // Build the tag lookup AND clone the bin definitions BEFORE moving
     // `request` into the pipeline — both are needed during post-
-    // processing and the pipeline takes ownership of `request`.
+    // processing and the pipeline takes ownership of `request`. Same
+    // for `scrap_strategy` which selects the post-pack scrap pipeline.
     let tag_by_shape: HashMap<String, String> = request
         .items
         .iter()
@@ -176,6 +177,9 @@ where
         .iter()
         .map(|b| (b.bin_id.clone(), b.clone()))
         .collect();
+    let scrap = crate::application::scrap_strategy::scrap_strategy_for(
+        request.scrap_strategy.unwrap_or_default(),
+    );
 
     let mut result = run(request)?;
 
@@ -191,7 +195,10 @@ where
     // 2. Free-space + offcut extraction. We re-walk per_bin and
     //    populate the two new fields. Skips bins that already have
     //    free_regions populated (some future pipeline might pre-
-    //    compute them; we don't want to clobber that).
+    //    compute them; we don't want to clobber that). Pipeline
+    //    selection is wire-driven via `request.scrap_strategy` —
+    //    `TwoSignal` (default) emits per-part shape-trapped crescents
+    //    on top of the bin-level diff; `Legacy` is the pre-fix path.
     for bin_result in &mut result.per_bin {
         if !bin_result.free_regions.is_empty() || !bin_result.offcuts.is_empty() {
             continue;
@@ -204,8 +211,7 @@ where
             .iter()
             .filter(|p| p.bin_id == bin_result.bin_id)
             .collect();
-        let (free_regions, offcuts) =
-            crate::application::free_space::extract_free_space(bin, &placements);
+        let (free_regions, offcuts) = scrap.extract(bin, &placements);
         bin_result.free_regions = free_regions;
         bin_result.offcuts = offcuts;
     }
@@ -289,6 +295,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: None,
+            scrap_strategy: None,
         };
 
         let result = strategy_for(None)
@@ -324,6 +331,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: None,
+            scrap_strategy: None,
         };
 
         let result = strategy_for(None)

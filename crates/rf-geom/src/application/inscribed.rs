@@ -5,6 +5,25 @@ use crate::domain::{Point2D, Polygon, Rect};
 /// Uses a grid + histogram + monotonic stack (O(RC) time).
 /// `grid_step` controls grid density.
 pub fn largest_inscribed_rect(polygon: &Polygon, grid_step: f64) -> Option<Rect> {
+    largest_inscribed_rect_avoiding(polygon, &[], grid_step)
+}
+
+/// Largest axis-aligned inscribed rectangle inside `polygon`, with the
+/// guarantee that no cell of the rect's interior falls inside any of the
+/// `obstacles` polygons. Used by the post-pack scrap pipeline so
+/// reusable rectangles don't extend through placed parts (the
+/// rf-geom Clipper wrapper returns "outer + hole" pairs as two positive
+/// polygons, so the bare polygon-only path treats the bin as a clean
+/// rectangle and emits offcuts straight through cones — see
+/// `rf-layout/src/application/free_space.rs` for the consumer).
+///
+/// `obstacles` should be in the same coordinate frame as `polygon`.
+/// Empty slice == identical behaviour to `largest_inscribed_rect`.
+pub fn largest_inscribed_rect_avoiding(
+    polygon: &Polygon,
+    obstacles: &[Polygon],
+    grid_step: f64,
+) -> Option<Rect> {
     let (min, max) = polygon.bbox();
     if grid_step <= 0.0 || (max.x - min.x) < grid_step || (max.y - min.y) < grid_step {
         return None;
@@ -21,9 +40,14 @@ pub fn largest_inscribed_rect(polygon: &Polygon, grid_step: f64) -> Option<Rect>
         for c in 0..cols {
             let cx = min.x + (c as f64 + 0.5) * grid_step;
             let cy = min.y + (r as f64 + 0.5) * grid_step;
-            if point_in_polygon(Point2D::new(cx, cy), polygon) {
-                grid[r][c] = true;
+            let p = Point2D::new(cx, cy);
+            if !point_in_polygon(p, polygon) {
+                continue;
             }
+            if obstacles.iter().any(|o| point_in_polygon(p, o)) {
+                continue;
+            }
+            grid[r][c] = true;
         }
     }
 
@@ -119,5 +143,41 @@ mod tests {
     #[test]
     fn none_when_grid_step_too_large() {
         assert!(largest_inscribed_rect(&unit_square(), 20.0).is_none());
+    }
+
+    #[test]
+    fn obstacles_carve_inscribed_rect() {
+        // 10x10 outer with a 4x4 obstacle in the middle. Largest rect
+        // available avoids the obstacle — should be one of the side
+        // strips ~10x3 = 30, not the unobstructed 81 we'd see without
+        // the obstacle.
+        let obstacle = Polygon::new(vec![
+            Point2D::new(3.0, 3.0),
+            Point2D::new(7.0, 3.0),
+            Point2D::new(7.0, 7.0),
+            Point2D::new(3.0, 7.0),
+        ])
+        .unwrap();
+        let r = largest_inscribed_rect_avoiding(&unit_square(), &[obstacle], 1.0)
+            .expect("should find a rect in the strips around the obstacle");
+        // Three strips available (top, bottom, left, right of the obstacle);
+        // largest is 10x3 = 30 in the obstructed square, give or take grid
+        // quantization.
+        assert!(
+            r.area() <= 35.0 && r.area() >= 25.0,
+            "expected rect ~30 (a side strip), got {:?} with area {}",
+            r,
+            r.area()
+        );
+    }
+
+    #[test]
+    fn no_obstacles_matches_legacy_path() {
+        let with_empty = largest_inscribed_rect_avoiding(&unit_square(), &[], 1.0).unwrap();
+        let legacy = largest_inscribed_rect(&unit_square(), 1.0).unwrap();
+        assert_eq!(with_empty.x, legacy.x);
+        assert_eq!(with_empty.y, legacy.y);
+        assert_eq!(with_empty.width, legacy.width);
+        assert_eq!(with_empty.height, legacy.height);
     }
 }

@@ -71,6 +71,7 @@ fn long_budget_fixture() -> PackRequest {
         units: UnitSystem::default(),
         cone_strategy: None,
         cone_packing_mode: None,
+        scrap_strategy: None,
     }
 }
 
@@ -167,6 +168,7 @@ fn no_cancel_token_completes_normally() {
         units: UnitSystem::default(),
         cone_strategy: None,
         cone_packing_mode: None,
+        scrap_strategy: None,
     };
     let result_a = pack(req.clone()).expect("pack");
     let result_b = pack_with_options(req, SearchOptions::default()).expect("pack");

@@ -43,14 +43,22 @@ fn auto_nest_cone_request() -> PackRequest {
         units: Default::default(),
         cone_strategy: None,
         cone_packing_mode: None,
+        scrap_strategy: None,
     }
 }
 
 #[test]
-fn default_strategy_does_not_return_overlapping_auto_nest_cones() {
+fn convex_hull_mode_does_not_return_overlapping_auto_nest_cones() {
+    // The SAT-based `convex_polygons_overlap` check below is only
+    // meaningful for convex pack surfaces. Now that the default is
+    // `AnnularSector` (non-convex), this regression test must opt
+    // into `ConvexHull` explicitly to keep the SAT assertion valid.
+    let mut request = auto_nest_cone_request();
+    request.cone_packing_mode = Some(ConePackingMode::ConvexHull);
+
     let result = strategy_for(None)
-        .pack(auto_nest_cone_request())
-        .expect("default strategy should pack AutoNest cone request");
+        .pack(request)
+        .expect("convex-hull strategy should pack AutoNest cone request");
 
     assert_eq!(
         result.placed_count, 4,
@@ -58,15 +66,20 @@ fn default_strategy_does_not_return_overlapping_auto_nest_cones() {
     );
     assert!(
         !placements_have_pack_surface_overlap(&result.placements),
-        "default strategy returned overlapping cone pack surfaces"
+        "convex-hull strategy returned overlapping cone pack surfaces"
     );
 }
 
 #[test]
-fn default_strategy_keeps_convex_hull_pack_overlay_for_cones() {
+fn convex_hull_mode_emits_hull_pack_overlay_for_cones() {
+    // Default is now AnnularSector — opt into ConvexHull to verify
+    // the hull overlay path still works.
+    let mut request = auto_nest_cone_request();
+    request.cone_packing_mode = Some(ConePackingMode::ConvexHull);
+
     let result = strategy_for(None)
-        .pack(auto_nest_cone_request())
-        .expect("default strategy should pack AutoNest cone request");
+        .pack(request)
+        .expect("convex-hull strategy should pack AutoNest cone request");
     let expected_segments = default_cone_segments(28.0, 120.0);
 
     assert!(
@@ -74,14 +87,14 @@ fn default_strategy_keeps_convex_hull_pack_overlay_for_cones() {
             .placements
             .iter()
             .all(|p| p.polygon.len() == 2 * (expected_segments + 1)),
-        "default render polygon should be the annular sector"
+        "render polygon should be the annular sector"
     );
     assert!(
         result.placements.iter().all(|p| p
             .pack_polygon
             .as_ref()
             .is_some_and(|poly| poly.len() == expected_segments + 3)),
-        "default pack surface should remain the convex hull overlay"
+        "ConvexHull mode should emit a hull pack overlay"
     );
 }
 

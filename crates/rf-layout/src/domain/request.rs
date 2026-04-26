@@ -136,12 +136,19 @@ pub struct PackRequest {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cone_strategy: Option<crate::application::cone_strategy::ConeStrategyKind>,
     /// Collision polygon for cone (sector) shapes. None defaults to
-    /// `ConePackingMode::ConvexHull`, preserving conservative
-    /// hull-based packing. `AnnularSector` opts into jagua's exact
-    /// simple-polygon collision path so cones may nest into each
-    /// other's concavities.
+    /// `ConePackingMode::AnnularSector` so jagua collides on the
+    /// actual cone outline and cones may nest into each other's
+    /// concavities. Set `ConvexHull` to opt into the conservative
+    /// hull-based packing.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cone_packing_mode: Option<crate::application::cone_strategy::ConePackingMode>,
+    /// Which scrap-extraction pipeline runs post-pack. None defaults
+    /// to `ScrapStrategyKind::TwoSignal` (Free Roam parity — emits
+    /// per-part bbox-minus-polygon shape-trapped crescents in
+    /// addition to the bin-level diff). Set `Legacy` for A/B
+    /// comparison or rollback. See `application::scrap_strategy`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub scrap_strategy: Option<crate::application::scrap_strategy::ScrapStrategyKind>,
 }
 
 pub const FAST_MS: u64 = 2_000;

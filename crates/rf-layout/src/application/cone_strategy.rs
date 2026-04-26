@@ -73,13 +73,16 @@ pub enum ConeStrategyKind {
 }
 
 /// Wire-format identifier for the cone collision polygon. Serialised
-/// on `PackRequest.cone_packing_mode`; absent means `ConvexHull`,
-/// preserving the conservative production behavior.
+/// on `PackRequest.cone_packing_mode`; absent means `AnnularSector`,
+/// the default since the operator-visible scrap layout reads more
+/// accurately when jagua collides on the actual cone outline rather
+/// than its convex hull. `ConvexHull` is preserved as an opt-in for
+/// the conservative legacy behavior.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum ConePackingMode {
-    #[default]
     ConvexHull,
+    #[default]
     AnnularSector,
 }
 
@@ -499,8 +502,8 @@ mod tests {
     }
 
     #[test]
-    fn default_packing_mode_is_convex_hull() {
-        assert_eq!(ConePackingMode::default(), ConePackingMode::ConvexHull);
+    fn default_packing_mode_is_annular_sector() {
+        assert_eq!(ConePackingMode::default(), ConePackingMode::AnnularSector);
     }
 
     #[test]
@@ -825,7 +828,10 @@ mod tests {
     }
 
     #[test]
-    fn materialise_polygon_builds_hull_from_sector_spec() {
+    fn materialise_polygon_builds_annular_sector_from_sector_spec() {
+        // `materialise_polygon` uses `ConePackingMode::default()`, now
+        // `AnnularSector` — so a spec-only sector materialises to the
+        // 50-vertex annular polygon, not the 27-vertex convex hull.
         let mut params = HashMap::new();
         params.insert("innerRadius".into(), serde_json::json!(3.0));
         params.insert("outerRadius".into(), serde_json::json!(6.0));
@@ -844,11 +850,11 @@ mod tests {
             tag: None,
         };
         let got = materialise_polygon(&part).unwrap();
-        assert_eq!(got.len(), 27);
+        assert_eq!(got.len(), 50);
     }
 
     #[test]
-    fn materialise_request_polygons_defaults_to_convex_hull_mode() {
+    fn materialise_request_polygons_defaults_to_annular_sector_mode() {
         let mut params = HashMap::new();
         params.insert("innerRadius".into(), serde_json::json!(3.0));
         params.insert("outerRadius".into(), serde_json::json!(6.0));
@@ -878,13 +884,14 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: None,
+            scrap_strategy: None,
         };
 
         materialise_request_polygons(&mut request).unwrap();
 
-        let expected = build_cone_convex_hull(dims(3.0, 6.0, 120.0, 24)).unwrap();
+        let expected = build_annular_sector_normalized(dims(3.0, 6.0, 120.0, 24)).unwrap();
         let got = request.items[0].polygon.as_ref().expect("materialised");
-        assert_eq!(got.len(), 27);
+        assert_eq!(got.len(), 50);
         assert!(approx_eq(polygon_area(got), polygon_area(&expected), 1e-9));
     }
 
@@ -919,6 +926,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: Some(ConePackingMode::AnnularSector),
+            scrap_strategy: None,
         };
 
         materialise_request_polygons(&mut request).unwrap();
@@ -930,7 +938,11 @@ mod tests {
     }
 
     #[test]
-    fn materialise_request_polygons_replaces_legacy_sector_polygon_with_hull() {
+    fn materialise_request_polygons_replaces_legacy_sector_polygon_with_hull_when_opted_in() {
+        // With `cone_packing_mode: Some(ConvexHull)`, even a legacy
+        // annular polygon supplied on the wire gets replaced by the
+        // 27-vertex convex hull. (Default mode is now AnnularSector,
+        // so this test must opt in explicitly.)
         let mut params = HashMap::new();
         params.insert("innerRadius".into(), serde_json::json!(3.0));
         params.insert("outerRadius".into(), serde_json::json!(6.0));
@@ -960,7 +972,8 @@ mod tests {
             seed: None,
             units: Default::default(),
             cone_strategy: None,
-            cone_packing_mode: None,
+            cone_packing_mode: Some(ConePackingMode::ConvexHull),
+            scrap_strategy: None,
         };
 
         materialise_request_polygons(&mut request).unwrap();
@@ -968,7 +981,7 @@ mod tests {
         assert_eq!(
             request.items[0].polygon.as_ref().map(Vec::len),
             Some(27),
-            "sector pack polygon should be convex hull even when a legacy annular polygon was supplied"
+            "sector pack polygon should be convex hull when ConvexHull is opted in"
         );
     }
 
@@ -1004,6 +1017,7 @@ mod tests {
             units: Default::default(),
             cone_strategy: None,
             cone_packing_mode: Some(ConePackingMode::AnnularSector),
+            scrap_strategy: None,
         };
 
         materialise_request_polygons(&mut request).unwrap();

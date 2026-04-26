@@ -178,7 +178,7 @@ export function AutoNestPage() {
   // Off by default; surfaces in the Graph card header only when at
   // least one cone is being packed.
   const [showPackHullOverlay, setShowPackHullOverlay] = useState(false)
-  const [conePackingMode, setConePackingMode] = useState<ConePackingMode>("convexHull")
+  const [conePackingMode, setConePackingMode] = useState<ConePackingMode>("annularSector")
   const { status: packStatus, requestPack, invalidate } = usePackGate()
 
   const selectedTemplates = useMemo(

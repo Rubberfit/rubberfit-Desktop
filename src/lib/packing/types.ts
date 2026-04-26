@@ -105,6 +105,21 @@ export type ConeStrategy = "convexWedge" | "annularSector"
  */
 export type ConePackingMode = "convexHull" | "annularSector"
 
+/**
+ * Post-pack scrap-extraction pipeline. Mirrors `ScrapStrategyKind`
+ * in `crates/rf-layout/src/application/scrap_strategy.rs`.
+ *
+ * - `legacy`: pre-fix behaviour — bin-level Clipper diff plus
+ *   inscribed-rect classification only. A/B / rollback path.
+ * - `twoSignal`: Free Roam parity — adds per-part
+ *   `bbox(polygon) − polygon` shape-trapped crescents on top of the
+ *   bin-level diff. Cones, ellipses, ngons, triangles, stars, and
+ *   rings render their corner waste explicitly.
+ *
+ * Absent → Rust default (`twoSignal`).
+ */
+export type ScrapStrategy = "legacy" | "twoSignal"
+
 export interface PackRequest {
   bins: Bin[]
   clearance: number
@@ -118,6 +133,7 @@ export interface PackRequest {
   units?: UnitSystem
   coneStrategy?: ConeStrategy
   conePackingMode?: ConePackingMode
+  scrapStrategy?: ScrapStrategy
 }
 
 export interface Placement {

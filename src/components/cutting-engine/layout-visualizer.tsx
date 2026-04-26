@@ -559,7 +559,9 @@ function SheetSvg({
               key={`scrap-${i}`}
               region={region}
               fill={`url(#${wasteId})`}
+              stroke={SCRAP_PATTERN_BASE}
               layout={layout}
+              cutouts={model.parts}
             />
           ))}
           {/* Reusable offcuts (amber). */}
@@ -568,6 +570,7 @@ function SheetSvg({
               key={`offcut-${i}`}
               region={region}
               fill={`url(#${offcutId})`}
+              stroke={OFFCUT_PATTERN_BASE}
               layout={layout}
             />
           ))}
@@ -593,31 +596,203 @@ function SheetSvg({
 
 // ── Region renderer (offcut + scrap) ──────────────────────────────────────
 
+/**
+ * Pattern base colours (must match the `<rect fill="...">` inside each
+ * pattern in `PatternDefs` below). Passed as `stroke` on scrap and
+ * offcut shapes so the 1-pixel anti-aliased rim of each region paints
+ * the pattern's base colour rather than letting the underlying stock
+ * pattern (#f5f5f4 — near-white) bleed through. Without this the rim
+ * reads as a thin white outline around every region and a white seam
+ * between adjacent regions.
+ */
+const SCRAP_PATTERN_BASE = "#fee2e2"
+const OFFCUT_PATTERN_BASE = "#fef3c7"
+
+/**
+ * Renders one scrap or offcut region. When `cutouts` is supplied, any
+ * placed part whose bbox overlaps the region is treated as a hole and
+ * punched out via SVG `fill-rule="evenodd"`. This is the visual fix
+ * for the user-reported bug where cones nesting into each other's
+ * concave notches saw waste regions painted across their bodies — the
+ * Rust shape-trapped pipeline emits per-part `bbox(P) − P.polygon`
+ * polygons (see `crates/rf-layout/src/application/free_space.rs`),
+ * which by themselves overlap any other part sitting inside P's bbox.
+ * The rf-geom Clipper wrapper can't subtract those other parts on the
+ * Rust side without losing hole topology, so we punch them out at
+ * render time instead.
+ */
 function RegionShape({
   region,
   fill,
+  stroke,
   layout,
+  cutouts,
 }: {
   region: LayoutRegion
   fill: string
+  stroke?: string
   layout: SheetLayout
+  cutouts?: ReadonlyArray<PlacedPart>
 }) {
+  const transformX = (x: number) => layout.surfaceX + x * layout.scale
+  const transformY = (y: number) => layout.surfaceY + y * layout.scale
+  // Width 1.05 = a hair over one device pixel, wide enough to cover
+  // the sub-pixel anti-aliased rim that would otherwise let the
+  // underlying stock pattern (#f5f5f4 — near-white) bleed through.
+  // Stroke is applied only to the OUTER contour as a separate
+  // overlay element so the cutout subpaths (placed parts) don't
+  // also get rimmed.
+  const strokeWidth = 1.05
+
   if (region.polygon && region.polygon.length >= 3) {
-    const points = region.polygon
-      .map((p) => `${layout.surfaceX + p.x * layout.scale},${layout.surfaceY + p.y * layout.scale}`)
+    const overlappingCutouts = cutouts ? cutoutsOverlapping(region, cutouts) : []
+    const outerPath = polygonToPathSegment(region.polygon, transformX, transformY)
+    if (overlappingCutouts.length === 0) {
+      return (
+        <>
+          <path d={outerPath} fill={fill} opacity="0.95" />
+          {stroke && (
+            <path d={outerPath} fill="none" stroke={stroke} strokeWidth={strokeWidth} />
+          )}
+        </>
+      )
+    }
+    const cutoutPaths = overlappingCutouts
+      .map((c) => polygonToPathSegment(c.polygon!, transformX, transformY))
       .join(" ")
-    return <polygon points={points} fill={fill} opacity="0.95" />
+    return (
+      <>
+        <path
+          d={`${outerPath} ${cutoutPaths}`}
+          fill={fill}
+          fillRule="evenodd"
+          opacity="0.95"
+        />
+        {stroke && (
+          <path d={outerPath} fill="none" stroke={stroke} strokeWidth={strokeWidth} />
+        )}
+      </>
+    )
   }
+  // Rect-only fallback (no polygon). Cutouts via evenodd still apply.
+  const overlappingCutouts = cutouts ? cutoutsOverlappingRect(region, cutouts) : []
+  const rx = transformX(region.x)
+  const ry = transformY(region.y)
+  const rw = region.width * layout.scale
+  const rh = region.height * layout.scale
+  if (overlappingCutouts.length === 0) {
+    return (
+      <>
+        <rect x={rx} y={ry} width={rw} height={rh} fill={fill} opacity="0.95" />
+        {stroke && (
+          <rect
+            x={rx}
+            y={ry}
+            width={rw}
+            height={rh}
+            fill="none"
+            stroke={stroke}
+            strokeWidth={strokeWidth}
+          />
+        )}
+      </>
+    )
+  }
+  const rectPath = `M ${rx} ${ry} h ${rw} v ${rh} h ${-rw} Z`
+  const cutoutPaths = overlappingCutouts
+    .map((c) => polygonToPathSegment(c.polygon!, transformX, transformY))
+    .join(" ")
   return (
-    <rect
-      x={layout.surfaceX + region.x * layout.scale}
-      y={layout.surfaceY + region.y * layout.scale}
-      width={region.width * layout.scale}
-      height={region.height * layout.scale}
-      fill={fill}
-      opacity="0.95"
-    />
+    <>
+      <path
+        d={`${rectPath} ${cutoutPaths}`}
+        fill={fill}
+        fillRule="evenodd"
+        opacity="0.95"
+      />
+      {stroke && (
+        <rect
+          x={rx}
+          y={ry}
+          width={rw}
+          height={rh}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+        />
+      )}
+    </>
   )
+}
+
+function polygonToPathSegment(
+  polygon: ReadonlyArray<{ x: number; y: number }>,
+  transformX: (x: number) => number,
+  transformY: (y: number) => number
+): string {
+  if (polygon.length < 3) return ""
+  const head = polygon[0]
+  let d = `M ${transformX(head.x)} ${transformY(head.y)}`
+  for (let i = 1; i < polygon.length; i++) {
+    d += ` L ${transformX(polygon[i].x)} ${transformY(polygon[i].y)}`
+  }
+  d += " Z"
+  return d
+}
+
+function cutoutsOverlapping(
+  region: LayoutRegion,
+  cutouts: ReadonlyArray<PlacedPart>
+): PlacedPart[] {
+  const r = polygonBbox(region.polygon!)
+  return cutouts.filter((c) => {
+    if (!c.polygon || c.polygon.length < 3) return false
+    const cb = polygonBbox(c.polygon)
+    return bboxesOverlap(r, cb)
+  })
+}
+
+function cutoutsOverlappingRect(
+  region: LayoutRegion,
+  cutouts: ReadonlyArray<PlacedPart>
+): PlacedPart[] {
+  const r = {
+    minX: region.x,
+    minY: region.y,
+    maxX: region.x + region.width,
+    maxY: region.y + region.height,
+  }
+  return cutouts.filter((c) => {
+    if (!c.polygon || c.polygon.length < 3) return false
+    const cb = polygonBbox(c.polygon)
+    return bboxesOverlap(r, cb)
+  })
+}
+
+function polygonBbox(polygon: ReadonlyArray<{ x: number; y: number }>): {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+} {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const p of polygon) {
+    if (p.x < minX) minX = p.x
+    if (p.y < minY) minY = p.y
+    if (p.x > maxX) maxX = p.x
+    if (p.y > maxY) maxY = p.y
+  }
+  return { minX, minY, maxX, maxY }
+}
+
+function bboxesOverlap(
+  a: { minX: number; minY: number; maxX: number; maxY: number },
+  b: { minX: number; minY: number; maxX: number; maxY: number }
+): boolean {
+  return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY
 }
 
 // ── Part renderer ─────────────────────────────────────────────────────────

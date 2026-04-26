@@ -278,29 +278,88 @@ fn process_polygon_for_snap(
             // edge may bulge into the rect's perpendicular extent
             // anywhere along its span, so we never let the rect cross
             // the edge's bbox on that side.
+            //
+            // Polygon vs. obstacle gates use different conditions:
+            //   - POLYGON: edge must be ENTIRELY on one side of the
+            //     rect (`x_hi <= rx0` for snap-left, `x_lo >= rx1` for
+            //     snap-right). The polygon is the inscribed source —
+            //     edges that straddle the rect would mean the rect
+            //     already pokes outside the polygon, which the
+            //     inscribed-rect classifier rules out.
+            //   - OBSTACLE: edge must NOT be crossed even if it
+            //     straddles the rect's edge. A polyline approximating a
+            //     curve has chords that connect to other chords; if
+            //     snap considered each chord independently and only
+            //     clamped on chords entirely outside the rect, an
+            //     adjacent chord straddling the rect's edge would be
+            //     ignored, and snap would happily pull the rect past
+            //     that chord into the obstacle. The connected boundary
+            //     between the two chord endpoints would then sit
+            //     inside the snapped rect. Clamping by `x_lo <= rx0`
+            //     (any portion of the chord at or past the rect's
+            //     edge) closes that hole — for straddling chords the
+            //     clamp resolves to "no snap on that side," which is
+            //     correct: snap can't safely grow the rect when the
+            //     obstacle's boundary already crosses it.
             if y_overlaps_rect {
-                if x_hi <= rx0 + EPS {
-                    let snapped_to = x_hi + EPS;
-                    if snapped_to > *new_x_min {
-                        *new_x_min = snapped_to;
+                match origin {
+                    EdgeOrigin::Polygon => {
+                        if x_hi <= rx0 + EPS {
+                            let snapped_to = x_hi + EPS;
+                            if snapped_to > *new_x_min {
+                                *new_x_min = snapped_to;
+                            }
+                        } else if x_lo >= rx1 - EPS {
+                            let snapped_to = x_lo - EPS;
+                            if snapped_to < *new_x_max {
+                                *new_x_max = snapped_to;
+                            }
+                        }
                     }
-                } else if x_lo >= rx1 - EPS {
-                    let snapped_to = x_lo - EPS;
-                    if snapped_to < *new_x_max {
-                        *new_x_max = snapped_to;
+                    EdgeOrigin::Obstacle => {
+                        if x_lo <= rx0 + EPS {
+                            let snapped_to = x_hi + EPS;
+                            if snapped_to > *new_x_min {
+                                *new_x_min = snapped_to;
+                            }
+                        }
+                        if x_hi >= rx1 - EPS {
+                            let snapped_to = x_lo - EPS;
+                            if snapped_to < *new_x_max {
+                                *new_x_max = snapped_to;
+                            }
+                        }
                     }
                 }
             }
             if x_overlaps_rect {
-                if y_hi <= ry0 + EPS {
-                    let snapped_to = y_hi + EPS;
-                    if snapped_to > *new_y_min {
-                        *new_y_min = snapped_to;
+                match origin {
+                    EdgeOrigin::Polygon => {
+                        if y_hi <= ry0 + EPS {
+                            let snapped_to = y_hi + EPS;
+                            if snapped_to > *new_y_min {
+                                *new_y_min = snapped_to;
+                            }
+                        } else if y_lo >= ry1 - EPS {
+                            let snapped_to = y_lo - EPS;
+                            if snapped_to < *new_y_max {
+                                *new_y_max = snapped_to;
+                            }
+                        }
                     }
-                } else if y_lo >= ry1 - EPS {
-                    let snapped_to = y_lo - EPS;
-                    if snapped_to < *new_y_max {
-                        *new_y_max = snapped_to;
+                    EdgeOrigin::Obstacle => {
+                        if y_lo <= ry0 + EPS {
+                            let snapped_to = y_hi + EPS;
+                            if snapped_to > *new_y_min {
+                                *new_y_min = snapped_to;
+                            }
+                        }
+                        if y_hi >= ry1 - EPS {
+                            let snapped_to = y_lo - EPS;
+                            if snapped_to < *new_y_max {
+                                *new_y_max = snapped_to;
+                            }
+                        }
                     }
                 }
             }

@@ -699,7 +699,7 @@ function SheetSvg({
                   height={region.height * layout.scale}
                   fill="none"
                   stroke="rgba(16, 185, 129, 0.95)"
-                  strokeWidth={1.5}
+                  strokeWidth={1.0}
                   strokeDasharray="6 3"
                   style={{ pointerEvents: "none" }}
                 />

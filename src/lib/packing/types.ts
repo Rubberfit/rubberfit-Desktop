@@ -46,11 +46,11 @@ export interface Part {
   shapeId: string
   quantity: number
   /**
-   * Pre-built polygon vertices in part-local coords. Optional —
-   * when omitted, the Rust pack pipeline materialises the polygon
-   * from `shapeSpec` (currently only `kind: "sector"` cones are
-   * spec-only; every other shape still ships its polygon from TS
-   * via `buildPart`). See `crates/rf-layout/src/application/cone_strategy.rs`.
+   * Pre-built polygon vertices in part-local coords. Reserved for
+   * raw-geometry callers (DXF imports, hand-drawn shapes). Auto-nest
+   * spec-able shapes (rect, circle, trapezoid, ngon, sector) ship
+   * `shapeSpec` only and rely on Rust to materialise the polygon at
+   * pack time. See `crates/rf-layout/src/application/shape_builder.rs`.
    */
   polygon?: Point2D[]
   shapeSpec?: ShapeSpec | null

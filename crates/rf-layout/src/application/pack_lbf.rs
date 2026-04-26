@@ -96,7 +96,7 @@ pub fn pack_lbf_with_config(
         ));
     }
 
-    crate::application::cone_strategy::materialise_request_polygons(&mut request)?;
+    crate::application::shape_builder::materialise_request_polygons(&mut request)?;
 
     let started_at = Instant::now();
 

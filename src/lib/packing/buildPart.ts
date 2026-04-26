@@ -1,6 +1,16 @@
-// Ported from rema-portal src/application/packing/buildPart.ts.
-// Pure TS — no DB, no DI. Keeps the shape exactly so the cutting-engine
-// UI that calls buildPart() doesn't need further modification.
+// Build a `Part` for the Rust autonester.
+//
+// Spec-able shapes (rect, circle, trapezoid, ngon, sector) ship the
+// `ShapeSpec` only — Rust materialises the polygon at pack time via
+// `application::shape_builder::materialise_polygon`. This file used to
+// duplicate the rect/circle/trapezoid/ngon polygon math in TS; that
+// path was removed to keep one canonical implementation Rust-side.
+//
+// `Part.polygon` is reserved for raw-geometry callers (DXF imports,
+// hand-drawn polygons, etc.) — they ship vertices directly and skip
+// the spec dispatch. When both `polygon` and `shapeSpec` are supplied,
+// Rust prefers the polygon (see `materialise_polygon`'s short-circuit
+// for `Part.polygon.is_some()`).
 
 import type { Part, ShapeSpec, Point2D } from "./types"
 
@@ -21,110 +31,19 @@ export interface BuildPartInput {
 }
 
 export function buildPart(input: BuildPartInput): Part {
-  // Cones (sector shape spec): polygon construction lives in Rust now
-  // — both the pack polygon jagua collides on (convex hull by default,
-  // annular sector when opted in) and the render polygon the visualizer
-  // paints. TS ships the dimensions only.
-  // See `crates/rf-layout/src/application/cone_strategy.rs`.
-  if (input.shapeSpec?.kind === "sector") {
-    return {
-      shapeId: input.shapeId,
-      quantity: input.quantity,
-      shapeSpec: input.shapeSpec,
-      allowRotation: input.allowRotation,
-      grainAxis: input.grainAxis,
-      difficulty: input.difficulty,
-      tag: input.tag,
-    }
-  }
-
-  let polygon: Point2D[]
-  if (input.polygon) {
-    polygon = normalizePolygon(input.polygon)
-  } else if (input.shapeSpec) {
-    polygon = buildPolygonFromSpec(input.shapeSpec)
-  } else {
+  if (!input.shapeSpec && !input.polygon) {
     throw new Error("buildPart: must provide shapeSpec or polygon")
   }
-
   return {
     shapeId: input.shapeId,
     quantity: input.quantity,
-    polygon,
+    polygon: input.polygon ? normalizePolygon(input.polygon) : undefined,
     shapeSpec: input.shapeSpec,
     allowRotation: input.allowRotation,
     grainAxis: input.grainAxis,
     difficulty: input.difficulty,
     tag: input.tag,
   }
-}
-
-function buildPolygonFromSpec(spec: ShapeSpec): Point2D[] {
-  switch (spec.kind) {
-    case "rect":
-      return buildRect(Number(spec.params.width), Number(spec.params.height))
-    case "circle":
-      return buildCircle(Number(spec.params.diameter), Number(spec.params.segments ?? 24))
-    case "trapezoid":
-      return buildTrapezoid(
-        Number(spec.params.topWidth),
-        Number(spec.params.bottomWidth),
-        Number(spec.params.height)
-      )
-    case "ngon":
-      return buildNGon(Number(spec.params.sides), Number(spec.params.radius))
-    default:
-      throw new Error(`buildPart: unsupported shape kind: ${spec.kind}`)
-  }
-}
-
-function buildRect(width: number, height: number): Point2D[] {
-  if (!(width > 0)) throw new Error("rect: width must be positive")
-  if (!(height > 0)) throw new Error("rect: height must be positive")
-  return [
-    { x: 0, y: 0 },
-    { x: width, y: 0 },
-    { x: width, y: height },
-    { x: 0, y: height },
-  ]
-}
-
-function buildTrapezoid(topW: number, bottomW: number, height: number): Point2D[] {
-  if (!(topW > 0)) throw new Error("trapezoid: topWidth must be positive")
-  if (!(bottomW > 0)) throw new Error("trapezoid: bottomWidth must be positive")
-  if (!(height > 0)) throw new Error("trapezoid: height must be positive")
-  const maxW = Math.max(topW, bottomW)
-  const topOffset = (maxW - topW) / 2
-  const bottomOffset = (maxW - bottomW) / 2
-  return normalizePolygon([
-    { x: bottomOffset, y: 0 },
-    { x: bottomOffset + bottomW, y: 0 },
-    { x: topOffset + topW, y: height },
-    { x: topOffset, y: height },
-  ])
-}
-
-function buildCircle(diameter: number, segments: number): Point2D[] {
-  if (!(diameter > 0)) throw new Error("circle: diameter must be positive")
-  if (!(segments >= 8)) throw new Error("circle: segments must be at least 8")
-  const r = diameter / 2
-  const pts: Point2D[] = []
-  for (let i = 0; i < segments; i++) {
-    const theta = (2 * Math.PI * i) / segments
-    pts.push({ x: r + r * Math.cos(theta), y: r + r * Math.sin(theta) })
-  }
-  return normalizePolygon(pts)
-}
-
-function buildNGon(sides: number, radius: number): Point2D[] {
-  if (!(sides >= 3)) throw new Error("ngon: sides must be at least 3")
-  if (!(radius > 0)) throw new Error("ngon: radius must be positive")
-  const pts: Point2D[] = []
-  for (let i = 0; i < sides; i++) {
-    const a = (2 * Math.PI * i) / sides - Math.PI / 2
-    pts.push({ x: radius * Math.cos(a), y: radius * Math.sin(a) })
-  }
-  return normalizePolygon(pts)
 }
 
 function normalizePolygon(points: Point2D[]): Point2D[] {

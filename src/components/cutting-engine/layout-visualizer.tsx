@@ -24,6 +24,30 @@ const PAD_BOTTOM = 80
 
 // ── Public API ────────────────────────────────────────────────────────────
 
+/**
+ * Debug overlay toggles. Bundled into a single prop so the visualizer
+ * tree's signatures don't grow each time we add a new diagnostic
+ * overlay. Consumers spread the fields they care about; everything
+ * else stays `undefined` and is treated as off.
+ */
+export interface DebugOverlayOptions {
+  /**
+   * If true, draw each placed part's `packPolygon` as a translucent
+   * dashed amber stroke on top of the rendered shape. Cone-only today,
+   * and only present when the cone collision surface differs from the
+   * rendered annular sector.
+   */
+  showPackHullOverlay?: boolean
+  /**
+   * Paint each `LayoutModel.debugScrapRects` entry as a dashed
+   * darker-red outline so the operator can see the raw inscribed-rect
+   * / monotonic-histogram output from `extract_offcuts_with_obstacles`.
+   * Production rendering ignores these rects (they overlap the
+   * bin-wide scrap polygon already).
+   */
+  showInscribedScrapRects?: boolean
+}
+
 export interface LayoutVisualizerProps {
   /**
    * Pre-computed layouts (one per stock sheet) from `usePackJob`.
@@ -48,21 +72,8 @@ export interface LayoutVisualizerProps {
    * the same `LayoutModel` data the visualizer paints.
    */
   onLayoutChange?: (layouts: LayoutModel[]) => void
-  /**
-   * If true, draw each placed part's `packPolygon` as a translucent
-   * dashed amber stroke on top of the rendered shape. Cone-only today,
-   * and only present when the cone collision surface differs from the
-   * rendered annular sector.
-   */
-  showPackHullOverlay?: boolean
-  /**
-   * Debug overlay: when true, paint each `LayoutModel.debugScrapRects`
-   * entry as a dashed darker-red outline so the operator can see the
-   * raw inscribed-rect / monotonic-histogram output from
-   * `extract_offcuts_with_obstacles`. Production rendering ignores
-   * these rects (they overlap the bin-wide scrap polygon already).
-   */
-  showInscribedScrapRects?: boolean
+  /** Diagnostic overlays. See {@link DebugOverlayOptions}. */
+  debugOptions?: DebugOverlayOptions
 }
 
 export default function LayoutVisualizer({
@@ -73,8 +84,7 @@ export default function LayoutVisualizer({
   packError,
   onMetricsChange,
   onLayoutChange,
-  showPackHullOverlay,
-  showInscribedScrapRects,
+  debugOptions,
 }: LayoutVisualizerProps) {
   const patternSeed = useId().replace(/:/g, "")
   const sheets = layouts && layouts.length > 0 ? layouts : null
@@ -150,8 +160,7 @@ export default function LayoutVisualizer({
             sheetIndex={i}
             totalSheets={sheets.length}
             patternSeed={`${patternSeed}-s${i}`}
-            showPackHullOverlay={showPackHullOverlay}
-            showInscribedScrapRects={showInscribedScrapRects}
+            debugOptions={debugOptions}
           />
         ))}
       </div>
@@ -421,15 +430,13 @@ function SheetSvg({
   sheetIndex,
   totalSheets,
   patternSeed,
-  showPackHullOverlay,
-  showInscribedScrapRects,
+  debugOptions,
 }: {
   layout: LayoutModel
   sheetIndex: number
   totalSheets: number
   patternSeed: string
-  showPackHullOverlay?: boolean
-  showInscribedScrapRects?: boolean
+  debugOptions?: DebugOverlayOptions
 }) {
   const layout = useMemo(
     () => computeSheetLayout(model.sheetWidth, model.sheetLength),
@@ -589,7 +596,7 @@ function SheetSvg({
           {/* Debug overlay: inscribed Scrap-classified rects, dashed
               darker-red outline. Only rendered when the operator
               ticks "Show inscribed rects". */}
-          {showInscribedScrapRects &&
+          {debugOptions?.showInscribedScrapRects &&
             model.debugScrapRects?.map((region, i) => (
               <rect
                 key={`debug-scrap-${i}`}
@@ -610,7 +617,7 @@ function SheetSvg({
               key={`part-${i}`}
               part={part}
               layout={layout}
-              showPackHullOverlay={showPackHullOverlay}
+              debugOptions={debugOptions}
             />
           ))}
         </g>
@@ -830,11 +837,11 @@ function bboxesOverlap(
 function PartShape({
   part,
   layout,
-  showPackHullOverlay,
+  debugOptions,
 }: {
   part: PlacedPart
   layout: SheetLayout
-  showPackHullOverlay?: boolean
+  debugOptions?: DebugOverlayOptions
 }) {
   const { surfaceX, surfaceY, scale } = layout
 
@@ -878,7 +885,7 @@ function PartShape({
   return (
     <g>
       {renderPartGeometry(part, layout)}
-      {showPackHullOverlay && part.packPolygon && part.packPolygon.length >= 3 && (
+      {debugOptions?.showPackHullOverlay && part.packPolygon && part.packPolygon.length >= 3 && (
         <polygon
           points={part.packPolygon
             .map((p) => `${surfaceX + p.x * scale},${surfaceY + p.y * scale}`)

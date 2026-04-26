@@ -27,10 +27,11 @@ pub fn pack_with_options(
         return Err(PackError::NoItems);
     }
 
-    // Materialise polygons (cones from `kind: "sector"` shape spec)
-    // up front so downstream search/jagua code can assume every part
-    // has a polygon. See `application::cone_strategy`.
-    crate::application::cone_strategy::materialise_request_polygons(&mut request)?;
+    // Materialise polygons up front so downstream search/jagua code
+    // can assume every part has a polygon. See
+    // `application::shape_builder` (rect/circle/trapezoid/ngon/sector
+    // are all built Rust-side from `Part.shape_spec`).
+    crate::application::shape_builder::materialise_request_polygons(&mut request)?;
 
     let started_at = Instant::now();
 

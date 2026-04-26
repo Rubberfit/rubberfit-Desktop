@@ -593,8 +593,10 @@ export function AutoNestPage() {
                   isPacking={isPacking}
                   packError={packError}
                   onMetricsChange={setCutMetrics}
-                  showPackHullOverlay={canShowPackHullOverlay && showPackHullOverlay}
-                  showInscribedScrapRects={showInscribedScrapRects}
+                  debugOptions={{
+                    showPackHullOverlay: canShowPackHullOverlay && showPackHullOverlay,
+                    showInscribedScrapRects,
+                  }}
                 />
               ) : (
                 <PackPrompt

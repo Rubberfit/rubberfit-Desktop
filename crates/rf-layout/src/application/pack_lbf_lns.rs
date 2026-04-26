@@ -87,7 +87,7 @@ pub fn pack_lbf_lns_with_config(
     mut request: PackRequest,
     cfg: PackLbfLnsConfig,
 ) -> Result<PackResult, PackError> {
-    crate::application::cone_strategy::materialise_request_polygons(&mut request)?;
+    crate::application::shape_builder::materialise_request_polygons(&mut request)?;
     if request.bins.len() <= 1 {
         return pack_lbf_lns_single_bin(request, cfg);
     }

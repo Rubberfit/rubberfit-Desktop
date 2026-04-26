@@ -54,9 +54,10 @@ pub struct Part {
     /// Pre-built polygon vertices in part-local coords (CCW, normalized
     /// so minX = minY = 0). Optional — when absent, the pack pipeline
     /// materialises the polygon from `shape_spec` via
-    /// `application::cone_strategy::materialise_polygon`. Today only
-    /// `kind: "sector"` (cones) is constructed Rust-side; every other
-    /// shape still ships its polygon from TS.
+    /// `application::shape_builder::materialise_polygon`. Auto-nest
+    /// spec-able shapes (rect, circle, trapezoid, ngon, sector) are
+    /// constructed Rust-side from `shape_spec`; this field is now
+    /// reserved for DXF imports / raw-geometry callers.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub polygon: Option<Vec<Point2D>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -158,7 +159,7 @@ pub const THOROUGH_MS: u64 = 30_000;
 impl Part {
     /// Borrow the materialised polygon. Panics if the polygon is
     /// `None`. Pack pipelines call
-    /// `application::cone_strategy::materialise_request_polygons` at
+    /// `application::shape_builder::materialise_request_polygons` at
     /// entry, after which every part is guaranteed to have a polygon
     /// — so downstream search/jagua code is free to assume it.
     pub fn polygon_slice(&self) -> &[Point2D] {

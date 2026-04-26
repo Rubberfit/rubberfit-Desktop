@@ -42,7 +42,7 @@ use rf_geom::domain::Point2D;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::domain::{PackError, PackRequest, Part, ShapeSpec};
+use crate::domain::{PackError, Part, ShapeSpec};
 
 /// Minimum subdivision count for cone outer/inner arcs when the
 /// caller omits `segments` from the shape spec. Small cones keep the
@@ -246,66 +246,18 @@ pub fn cone_dims_from_part(part: &Part) -> Option<ConeDimensions> {
     parse_cone_dimensions(spec).ok()
 }
 
-/// Walk every part in the request and fill in any missing polygon
-/// from its shape spec. Pack pipelines call this once on entry so
-/// downstream search/jagua code can assume `Part.polygon` is `Some`.
-pub fn materialise_request_polygons(request: &mut PackRequest) -> Result<(), PackError> {
-    let cone_packing_mode = request.cone_packing_mode.unwrap_or_default();
-    for part in &mut request.items {
-        if part
-            .shape_spec
-            .as_ref()
-            .is_some_and(|spec| spec.kind == "sector")
-        {
-            part.polygon = Some(materialise_sector_polygon_from_spec(
-                part,
-                cone_packing_mode,
-            )?);
-            continue;
-        }
-        if part.polygon.is_some() {
-            continue;
-        }
-        part.polygon = Some(materialise_polygon(part)?);
-    }
-    Ok(())
-}
-
-/// Resolve a part's pack polygon. Returns the literal polygon when
-/// present, otherwise materialises one from the shape spec.
-///
-/// Currently only `kind: "sector"` (cones) are spec-only — every
-/// other shape still ships its polygon from TS. Adding a new
-/// spec-only shape: extend the `match` here.
-pub fn materialise_polygon(part: &Part) -> Result<Vec<Point2D>, PackError> {
-    if let Some(p) = &part.polygon {
-        return Ok(p.clone());
-    }
-    materialise_sector_polygon_from_spec(part, ConePackingMode::default())
-}
-
-fn materialise_sector_polygon_from_spec(
-    part: &Part,
+/// Build the cone (sector) polygon for the given mode. Caller is
+/// responsible for routing only `kind: "sector"` here — this is the
+/// per-kind builder hook the dispatch in
+/// `application::shape_builder::build_polygon_from_spec` calls into.
+pub fn build_sector_polygon_from_spec(
+    spec: &ShapeSpec,
     mode: ConePackingMode,
 ) -> Result<Vec<Point2D>, PackError> {
-    let spec = part.shape_spec.as_ref().ok_or_else(|| {
-        PackError::EngineFailed(format!(
-            "part '{}' has neither polygon nor shape_spec",
-            part.shape_id
-        ))
-    })?;
-    match spec.kind.as_str() {
-        "sector" => {
-            let d = parse_cone_dimensions(spec)?;
-            match mode {
-                ConePackingMode::ConvexHull => build_cone_convex_hull(d),
-                ConePackingMode::AnnularSector => build_annular_sector_normalized(d),
-            }
-        }
-        other => Err(PackError::EngineFailed(format!(
-            "part '{}' has shape_spec.kind '{}' but no polygon; only 'sector' is constructed Rust-side today",
-            part.shape_id, other,
-        ))),
+    let d = parse_cone_dimensions(spec)?;
+    match mode {
+        ConePackingMode::ConvexHull => build_cone_convex_hull(d),
+        ConePackingMode::AnnularSector => build_annular_sector_normalized(d),
     }
 }
 
@@ -367,7 +319,7 @@ fn build_cone_convex_hull(d: ConeDimensions) -> Result<Vec<Point2D>, PackError> 
 
 /// Translate so minX = minY = 0, then ensure CCW winding. Mirrors
 /// `normalizePolygon` + `ensureCCW` in `src/lib/packing/buildPart.ts`.
-fn normalize_polygon(points: Vec<Point2D>) -> Vec<Point2D> {
+pub(crate) fn normalize_polygon(points: Vec<Point2D>) -> Vec<Point2D> {
     if points.is_empty() {
         return points;
     }
@@ -450,6 +402,13 @@ fn cross(o: Point2D, a: Point2D, b: Point2D) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // `materialise_polygon` and `materialise_request_polygons` moved to
+    // `application::shape_builder` when the spec-based polygon builder
+    // grew past the sector-only origin. The tests below still belong
+    // here because they exercise cone-mode-specific dispatch behaviour
+    // and rely on cone-strategy fixtures.
+    use crate::application::shape_builder::{materialise_polygon, materialise_request_polygons};
+    use crate::domain::PackRequest;
 
     fn dims(inner: f64, outer: f64, deg: f64, segs: usize) -> ConeDimensions {
         ConeDimensions {

@@ -56,11 +56,7 @@ pub fn materialise_polygon(part: &Part) -> Result<Vec<Point2D>, PackError> {
 pub fn materialise_request_polygons(request: &mut PackRequest) -> Result<(), PackError> {
     let cone_mode = request.cone_packing_mode.unwrap_or_default();
     for part in &mut request.items {
-        if part
-            .shape_spec
-            .as_ref()
-            .is_some_and(|s| s.kind == "sector")
-        {
+        if part.shape_spec.as_ref().is_some_and(|s| s.kind == "sector") {
             // Safe: the predicate guarantees shape_spec.is_some().
             let spec = part.shape_spec.as_ref().expect("checked above");
             part.polygon = Some(build_polygon_from_spec(spec, cone_mode)?);
@@ -200,8 +196,8 @@ fn build_ngon(spec: &ShapeSpec) -> Result<Vec<Point2D>, PackError> {
     }
     let mut pts = Vec::with_capacity(sides);
     for i in 0..sides {
-        let a = 2.0 * std::f64::consts::PI * (i as f64) / (sides as f64)
-            - std::f64::consts::FRAC_PI_2;
+        let a =
+            2.0 * std::f64::consts::PI * (i as f64) / (sides as f64) - std::f64::consts::FRAC_PI_2;
         pts.push(Point2D::new(radius * a.cos(), radius * a.sin()));
     }
     Ok(normalize_polygon(pts))
@@ -211,10 +207,7 @@ fn build_ngon(spec: &ShapeSpec) -> Result<Vec<Point2D>, PackError> {
 
 fn read_f64(params: &HashMap<String, serde_json::Value>, key: &str) -> Result<f64, PackError> {
     params.get(key).and_then(|v| v.as_f64()).ok_or_else(|| {
-        PackError::EngineFailed(format!(
-            "shape_spec missing or non-numeric param '{}'",
-            key
-        ))
+        PackError::EngineFailed(format!("shape_spec missing or non-numeric param '{}'", key))
     })
 }
 
@@ -459,10 +452,8 @@ mod tests {
             "sector",
             json!({"innerRadius": 3.0, "outerRadius": 6.0, "arcDegrees": 120.0, "segments": 24}),
         );
-        let from_dispatch =
-            build_polygon_from_spec(&s, ConePackingMode::default()).unwrap();
-        let from_direct =
-            build_sector_polygon_from_spec(&s, ConePackingMode::default()).unwrap();
+        let from_dispatch = build_polygon_from_spec(&s, ConePackingMode::default()).unwrap();
+        let from_direct = build_sector_polygon_from_spec(&s, ConePackingMode::default()).unwrap();
         assert_eq!(from_dispatch.len(), from_direct.len());
         for (a, b) in from_dispatch.iter().zip(from_direct.iter()) {
             assert!((a.x - b.x).abs() < 1e-12);
@@ -475,7 +466,11 @@ mod tests {
         let s = spec("banana", json!({}));
         let err = build_polygon_from_spec(&s, ConePackingMode::default()).unwrap_err();
         let msg = format!("{:?}", err);
-        assert!(msg.contains("banana"), "error should mention the kind: {}", msg);
+        assert!(
+            msg.contains("banana"),
+            "error should mention the kind: {}",
+            msg
+        );
     }
 
     // ── materialise_polygon ──

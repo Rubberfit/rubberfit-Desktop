@@ -9,9 +9,9 @@
 // classified as reusable space the test fails with the offending
 // offcut + placement coords, which is the data we need to debug.
 
+use rf_geom::domain::Point2D;
 use rf_layout::application::strategy_for;
 use rf_layout::domain::{Bin, BinKind, OffcutKind, PackMode, PackRequest, Part, ShapeSpec};
-use rf_geom::domain::Point2D;
 use std::collections::HashMap;
 
 fn ray_cast_point_in_polygon(p: Point2D, poly: &[Point2D]) -> bool {
@@ -167,13 +167,29 @@ fn run_scenario(
             let max_y = ys.fold(f64::NEG_INFINITY, f64::max);
             println!(
                 "  placement[{}] {} bbox=({:.2},{:.2})-({:.2},{:.2}) rot={:.2} verts={}",
-                i, p.shape_id, min_x, min_y, max_x, max_y, p.rotation_rad, p.polygon.len()
+                i,
+                p.shape_id,
+                min_x,
+                min_y,
+                max_x,
+                max_y,
+                p.rotation_rad,
+                p.polygon.len()
             );
         }
-        println!("--- {} reusable offcut(s) ---", bin.offcuts.iter().filter(|o| o.kind == OffcutKind::Reusable).count());
+        println!(
+            "--- {} reusable offcut(s) ---",
+            bin.offcuts
+                .iter()
+                .filter(|o| o.kind == OffcutKind::Reusable)
+                .count()
+        );
         for (i, o) in bin.offcuts.iter().enumerate() {
             if o.kind == OffcutKind::Reusable {
-                println!("  offcut[{}] rect=({:.2},{:.2} {:.2}×{:.2})", i, o.x, o.y, o.width, o.height);
+                println!(
+                    "  offcut[{}] rect=({:.2},{:.2} {:.2}×{:.2})",
+                    i, o.x, o.y, o.width, o.height
+                );
             }
         }
     }
@@ -192,17 +208,18 @@ fn multi_cone_reusable_offcuts_dont_overlap_placement_polygons() {
         ("cone-90-b", 90.0),
         ("cone-150", 150.0),
     ];
-    let presets: [(f64, f64); 4] = [
-        (10.0, 28.0),
-        (4.0, 18.0),
-        (8.0, 24.0),
-        (2.0, 12.0),
-    ];
+    let presets: [(f64, f64); 4] = [(10.0, 28.0), (4.0, 18.0), (8.0, 24.0), (2.0, 12.0)];
     for (inner, outer) in presets {
         for seed in [1_u64, 2, 3, 7, 42, 100] {
             let v = run_scenario(seed, cones, inner, outer);
             if !v.is_empty() {
-                println!("inner={} outer={} seed={} -> {} violation(s)", inner, outer, seed, v.len());
+                println!(
+                    "inner={} outer={} seed={} -> {} violation(s)",
+                    inner,
+                    outer,
+                    seed,
+                    v.len()
+                );
                 all.extend(v);
             }
         }
@@ -211,12 +228,14 @@ fn multi_cone_reusable_offcuts_dont_overlap_placement_polygons() {
     if !all.is_empty() {
         let n = all.len();
         let max_show = 20;
-        println!("=== {} total violation(s); showing first {} ===", n, n.min(max_show));
+        println!(
+            "=== {} total violation(s); showing first {} ===",
+            n,
+            n.min(max_show)
+        );
         for v in all.iter().take(max_show) {
             println!("{}", v);
         }
-        panic!(
-            "Reusable offcut(s) overlap placement polygon(s); see stdout for coords"
-        );
+        panic!("Reusable offcut(s) overlap placement polygon(s); see stdout for coords");
     }
 }

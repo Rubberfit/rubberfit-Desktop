@@ -17,18 +17,20 @@ pub use cone_strategy::{
     parse_cone_dimensions, AnnularSectorStrategy, ConeDimensions, ConePackingMode,
     ConePolygonStrategy, ConeStrategyKind, ConvexWedgeStrategy,
 };
-pub use shape_builder::{build_polygon_from_spec, materialise_polygon, materialise_request_polygons};
 pub use crossbin::try_cross_bin_moveout;
-pub use pack::pack;
-pub use pack_lbf::{pack_lbf, pack_lbf_with_config, PackLbfConfig};
-pub use pack_lbf_lns::{pack_lbf_lns, pack_lbf_lns_with_config, PackLbfLnsConfig};
-pub use polish::{polish_placements, polish_score, PolishConfig, PolishScore};
 pub use offcut_extraction_strategy::{
     offcut_extraction_strategy_for, GreedyMaxRectStrategy, OffcutExtractionStrategy,
     OffcutExtractionStrategyKind,
 };
+pub use pack::pack;
+pub use pack_lbf::{pack_lbf, pack_lbf_with_config, PackLbfConfig};
+pub use pack_lbf_lns::{pack_lbf_lns, pack_lbf_lns_with_config, PackLbfLnsConfig};
+pub use polish::{polish_placements, polish_score, PolishConfig, PolishScore};
 pub use scrap_strategy::{
     scrap_strategy_for, LegacyScrapStrategy, ScrapStrategy, ScrapStrategyKind,
     TwoSignalScrapStrategy,
+};
+pub use shape_builder::{
+    build_polygon_from_spec, materialise_polygon, materialise_request_polygons,
 };
 pub use strategy::{strategy_for, LbfLnsStrategy, LbfStrategy, LegacyStrategy, NestingStrategy};

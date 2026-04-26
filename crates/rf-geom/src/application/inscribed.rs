@@ -554,7 +554,11 @@ mod tests {
         // x_min was 4.0; we expect snap to have grown left toward but
         // not past 3.0. Sanity: the snap moved (i.e. < 4.0 by at least
         // a small amount).
-        assert!(snapped.x < 4.0, "snap should grow left, got x={}", snapped.x);
+        assert!(
+            snapped.x < 4.0,
+            "snap should grow left, got x={}",
+            snapped.x
+        );
     }
 
     #[test]
@@ -564,7 +568,11 @@ mod tests {
         let r = Rect::new(2.0, 2.0, 6.0, 6.0);
         let snapped = snap_rect_to_polygon_and_obstacles(r, &unit_square(), &[], 0.25);
         assert!(snapped.x >= 2.0 - 0.25 - 1e-9, "x={}", snapped.x);
-        assert!(snapped.x <= 2.0 + 1e-9, "snap should not shrink, x={}", snapped.x);
+        assert!(
+            snapped.x <= 2.0 + 1e-9,
+            "snap should not shrink, x={}",
+            snapped.x
+        );
         let right = snapped.x + snapped.width;
         assert!(right <= 8.0 + 0.25 + 1e-9, "right={}", right);
         assert!(right >= 8.0 - 1e-9);

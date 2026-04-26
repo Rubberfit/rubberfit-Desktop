@@ -446,8 +446,7 @@ pub(crate) fn extract_offcuts_with_obstacles(
     let mut working: Vec<Polygon> = free_regions.to_vec();
     let mut offcuts: Vec<ClassifiedOffcut> = Vec::new();
     let started_at = std::time::Instant::now();
-    let extract_deadline =
-        started_at + std::time::Duration::from_millis(MAX_OFFCUT_EXTRACT_MS);
+    let extract_deadline = started_at + std::time::Duration::from_millis(MAX_OFFCUT_EXTRACT_MS);
 
     while offcuts.len() < MAX_OFFCUTS_PER_BIN && !working.is_empty() {
         // Per-bin extraction deadline. `largest_inscribed_rect_avoiding`
@@ -511,12 +510,8 @@ pub(crate) fn extract_offcuts_with_obstacles(
         // unshrunk grid rect to preserve the inscribed-rect loop's
         // convergence (residual polygon shrinks by ≥1 grid step per
         // iteration, bounded `MAX_OFFCUTS_PER_BIN`).
-        let snapped = snap_rect_to_polygon_and_obstacles(
-            rect,
-            &working[idx],
-            obstacles,
-            INSCRIBED_GRID_STEP,
-        );
+        let snapped =
+            snap_rect_to_polygon_and_obstacles(rect, &working[idx], obstacles, INSCRIBED_GRID_STEP);
         if snapped.area() < MIN_REGION_AREA_SQIN {
             // fall through to subtraction below to clear the source.
         } else {
@@ -733,8 +728,14 @@ mod tests {
             .into_iter()
             .map(|p| Point2D::new(p.x - min_x + tx, p.y - min_y + ty))
             .collect();
-        let max_x = polygon.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max);
-        let max_y = polygon.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max);
+        let max_x = polygon
+            .iter()
+            .map(|p| p.x)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let max_y = polygon
+            .iter()
+            .map(|p| p.y)
+            .fold(f64::NEG_INFINITY, f64::max);
         Placement {
             shape_id: "cone".into(),
             instance_index: 0,
@@ -794,7 +795,9 @@ mod tests {
             bin_area - rect_area
         );
         assert!(
-            two_offcuts.iter().any(|o| matches!(o.kind, OffcutKind::Reusable)),
+            two_offcuts
+                .iter()
+                .any(|o| matches!(o.kind, OffcutKind::Reusable)),
             "expected at least one Reusable offcut in the L-shape"
         );
     }
@@ -890,7 +893,9 @@ mod tests {
 
         // Reusable offcuts are still produced for amber rendering.
         assert!(
-            offcuts.iter().any(|o| matches!(o.kind, OffcutKind::Reusable)),
+            offcuts
+                .iter()
+                .any(|o| matches!(o.kind, OffcutKind::Reusable)),
             "expected at least one Reusable offcut"
         );
     }
@@ -904,7 +909,9 @@ mod tests {
         let p = annular_sector_placement("b1", 10.0, 10.0, 3.0, 6.0, 120.0, 24);
         let (_, offcuts) = extract_free_space_two_signal(&bin, &[&p]);
         assert!(
-            offcuts.iter().any(|o| matches!(o.kind, OffcutKind::Reusable)),
+            offcuts
+                .iter()
+                .any(|o| matches!(o.kind, OffcutKind::Reusable)),
             "expected at least one Reusable offcut"
         );
     }
@@ -920,10 +927,8 @@ mod tests {
 
         // Replicate the obstacle construction inside the pipeline.
         let stock = build_stock_polygon(bin.width, bin.height).unwrap();
-        let obstacles: Vec<Polygon> =
-            vec![Polygon::new(p.polygon.clone()).expect("rect polygon")];
-        let raw_offcuts =
-            extract_offcuts_with_obstacles(&bin.bin_id, &[stock], &obstacles);
+        let obstacles: Vec<Polygon> = vec![Polygon::new(p.polygon.clone()).expect("rect polygon")];
+        let raw_offcuts = extract_offcuts_with_obstacles(&bin.bin_id, &[stock], &obstacles);
         let pre_reusable_sum: f64 = raw_offcuts
             .iter()
             .filter(|o| matches!(o.kind, OffcutKind::Reusable))
@@ -1041,5 +1046,4 @@ mod tests {
             merged_area
         );
     }
-
 }

@@ -109,8 +109,7 @@ pub fn pack_lbf_with_config(
     // AND the mode-based fallback (Fast=2s, Balanced=10s, Thorough=30s);
     // reading the raw field alone would skip the deadline whenever the
     // caller specified a mode without an explicit ms.
-    let deadline =
-        started_at + std::time::Duration::from_millis(request.resolved_time_budget_ms());
+    let deadline = started_at + std::time::Duration::from_millis(request.resolved_time_budget_ms());
 
     // Deterministic seed sequence from the caller's (optional) base seed.
     // Falls back to a fixed 42 when the request omits the seed so results

@@ -44,10 +44,13 @@ use std::collections::HashMap;
 
 use crate::domain::{PackError, PackRequest, Part, ShapeSpec};
 
-/// Default subdivision count for the outer/inner arcs when the caller
-/// omits `segments` from the shape spec. Matches the TS-side default
-/// in `src/lib/packing/buildPart.ts`.
+/// Minimum subdivision count for cone outer/inner arcs when the
+/// caller omits `segments` from the shape spec. Small cones keep the
+/// previous 24-segment default; larger cones scale upward so their
+/// arcs do not render as long rigid chords.
 pub const DEFAULT_CONE_SEGMENTS: usize = 24;
+pub const MAX_CONE_SEGMENTS: usize = 256;
+pub const DEFAULT_CONE_MAX_CHORD: f64 = 1.0;
 
 /// Geometric parameters parsed out of a `kind: "sector"` shape spec.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -159,8 +162,9 @@ pub fn cone_strategy_for(kind: ConeStrategyKind) -> Box<dyn ConePolygonStrategy>
     }
 }
 
-/// Read cone dimensions out of a `sector` shape spec. `segments`
-/// defaults to 24 (matching the TS-side default) when absent.
+/// Read cone dimensions out of a `sector` shape spec. Explicit
+/// `segments` are respected; omitted segments scale from the outer
+/// arc length with a 24-segment floor.
 pub fn parse_cone_dimensions(spec: &ShapeSpec) -> Result<ConeDimensions, PackError> {
     if spec.kind != "sector" {
         return Err(PackError::EngineFailed(format!(
@@ -171,12 +175,11 @@ pub fn parse_cone_dimensions(spec: &ShapeSpec) -> Result<ConeDimensions, PackErr
     let inner_radius = read_f64(&spec.params, "innerRadius")?;
     let outer_radius = read_f64(&spec.params, "outerRadius")?;
     let arc_degrees = read_f64(&spec.params, "arcDegrees")?;
-    let segments = spec
+    let explicit_segments = spec
         .params
         .get("segments")
         .and_then(|v| v.as_f64())
-        .map(|f| f as usize)
-        .unwrap_or(DEFAULT_CONE_SEGMENTS);
+        .map(|f| f as usize);
 
     if !(outer_radius > inner_radius) {
         return Err(PackError::EngineFailed(format!(
@@ -196,6 +199,8 @@ pub fn parse_cone_dimensions(spec: &ShapeSpec) -> Result<ConeDimensions, PackErr
             arc_degrees
         )));
     }
+    let segments =
+        explicit_segments.unwrap_or_else(|| default_cone_segments(outer_radius, arc_degrees));
     if segments < 2 {
         return Err(PackError::EngineFailed(format!(
             "cone: segments must be at least 2, got {}",
@@ -209,6 +214,21 @@ pub fn parse_cone_dimensions(spec: &ShapeSpec) -> Result<ConeDimensions, PackErr
         arc_degrees,
         segments,
     })
+}
+
+/// Default arc subdivision for omitted `segments`. The controlling
+/// edge is the outer arc, because it produces the longest visible
+/// chords. `DEFAULT_CONE_MAX_CHORD` is expressed in the request's
+/// geometry units, and the cap keeps very large cones from exploding
+/// jagua polygon sizes.
+pub fn default_cone_segments(outer_radius: f64, arc_degrees: f64) -> usize {
+    let arc_rad = arc_degrees.to_radians();
+    if !(outer_radius.is_finite() && outer_radius > 0.0 && arc_rad.is_finite() && arc_rad > 0.0) {
+        return DEFAULT_CONE_SEGMENTS;
+    }
+
+    let by_chord = (outer_radius * arc_rad / DEFAULT_CONE_MAX_CHORD).ceil() as usize;
+    by_chord.clamp(DEFAULT_CONE_SEGMENTS, MAX_CONE_SEGMENTS)
 }
 
 /// Returns `Some(dims)` when the part is a cone (sector shape spec),
@@ -535,18 +555,57 @@ mod tests {
     }
 
     #[test]
-    fn parse_cone_dimensions_defaults_segments_to_24() {
+    fn parse_cone_dimensions_defaults_small_cones_to_minimum_segments() {
         let mut params = HashMap::new();
         params.insert("innerRadius".into(), serde_json::json!(3.0));
         params.insert("outerRadius".into(), serde_json::json!(6.0));
         params.insert("arcDegrees".into(), serde_json::json!(120.0));
-        // segments intentionally omitted — matches AutoNest.tsx wire format.
+        // segments intentionally omitted — AutoNest ships dimensions
+        // and lets Rust choose an arc resolution.
         let spec = ShapeSpec {
             kind: "sector".into(),
             params,
         };
         let d = parse_cone_dimensions(&spec).unwrap();
         assert_eq!(d.segments, DEFAULT_CONE_SEGMENTS);
+    }
+
+    #[test]
+    fn parse_cone_dimensions_scales_default_segments_for_large_cones() {
+        let mut params = HashMap::new();
+        params.insert("innerRadius".into(), serde_json::json!(10.0));
+        params.insert("outerRadius".into(), serde_json::json!(60.0));
+        params.insert("arcDegrees".into(), serde_json::json!(180.0));
+        let spec = ShapeSpec {
+            kind: "sector".into(),
+            params,
+        };
+        let d = parse_cone_dimensions(&spec).unwrap();
+        assert_eq!(d.segments, default_cone_segments(60.0, 180.0));
+        assert!(
+            d.segments > DEFAULT_CONE_SEGMENTS,
+            "large cones should use more than the minimum segment count"
+        );
+    }
+
+    #[test]
+    fn parse_cone_dimensions_preserves_explicit_segments_for_large_cones() {
+        let mut params = HashMap::new();
+        params.insert("innerRadius".into(), serde_json::json!(10.0));
+        params.insert("outerRadius".into(), serde_json::json!(60.0));
+        params.insert("arcDegrees".into(), serde_json::json!(180.0));
+        params.insert("segments".into(), serde_json::json!(24));
+        let spec = ShapeSpec {
+            kind: "sector".into(),
+            params,
+        };
+        let d = parse_cone_dimensions(&spec).unwrap();
+        assert_eq!(d.segments, 24);
+    }
+
+    #[test]
+    fn default_cone_segments_caps_extremely_large_arcs() {
+        assert_eq!(default_cone_segments(10_000.0, 320.0), MAX_CONE_SEGMENTS);
     }
 
     #[test]

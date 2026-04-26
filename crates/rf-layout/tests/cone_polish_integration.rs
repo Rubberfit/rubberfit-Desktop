@@ -1,6 +1,6 @@
 use rf_geom::domain::Point2D;
-use rf_layout::application::strategy_for;
 use rf_layout::application::ConePackingMode;
+use rf_layout::application::{default_cone_segments, strategy_for};
 use rf_layout::domain::{Bin, BinKind, PackMode, PackRequest, Part, Placement, ShapeSpec};
 use std::collections::HashMap;
 
@@ -67,16 +67,20 @@ fn default_strategy_keeps_convex_hull_pack_overlay_for_cones() {
     let result = strategy_for(None)
         .pack(auto_nest_cone_request())
         .expect("default strategy should pack AutoNest cone request");
+    let expected_segments = default_cone_segments(28.0, 120.0);
 
-    assert!(
-        result.placements.iter().all(|p| p.polygon.len() == 50),
-        "default render polygon should be the annular sector"
-    );
     assert!(
         result
             .placements
             .iter()
-            .all(|p| p.pack_polygon.as_ref().is_some_and(|poly| poly.len() == 27)),
+            .all(|p| p.polygon.len() == 2 * (expected_segments + 1)),
+        "default render polygon should be the annular sector"
+    );
+    assert!(
+        result.placements.iter().all(|p| p
+            .pack_polygon
+            .as_ref()
+            .is_some_and(|poly| poly.len() == expected_segments + 3)),
         "default pack surface should remain the convex hull overlay"
     );
 }
@@ -94,8 +98,12 @@ fn annular_sector_packing_mode_packs_real_cone_polygon_without_overlay() {
         result.placed_count, 4,
         "annular-sector regression fixture should place every requested cone"
     );
+    let expected_vertices = 2 * (default_cone_segments(28.0, 120.0) + 1);
     assert!(
-        result.placements.iter().all(|p| p.polygon.len() == 50),
+        result
+            .placements
+            .iter()
+            .all(|p| p.polygon.len() == expected_vertices),
         "pack/render polygon should be the real annular sector"
     );
     assert!(

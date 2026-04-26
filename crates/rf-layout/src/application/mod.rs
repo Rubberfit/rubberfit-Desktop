@@ -10,9 +10,9 @@ pub mod polish;
 pub mod strategy;
 
 pub use cone_strategy::{
-    cone_dims_from_part, cone_strategy_for, materialise_polygon, materialise_request_polygons,
-    parse_cone_dimensions, AnnularSectorStrategy, ConeDimensions, ConePackingMode,
-    ConePolygonStrategy, ConeStrategyKind, ConvexWedgeStrategy,
+    cone_dims_from_part, cone_strategy_for, default_cone_segments, materialise_polygon,
+    materialise_request_polygons, parse_cone_dimensions, AnnularSectorStrategy, ConeDimensions,
+    ConePackingMode, ConePolygonStrategy, ConeStrategyKind, ConvexWedgeStrategy,
 };
 pub use crossbin::try_cross_bin_moveout;
 pub use pack::pack;

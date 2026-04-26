@@ -327,17 +327,19 @@ function Legend({ layouts }: { layouts: LayoutModel[] }) {
   if (seen.size === 0) return null
   return (
     <div className="flex flex-wrap gap-3 border-b border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
-      {[...seen.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([tag, label]) => (
-        <span key={tag} className="flex items-center gap-1.5">
-          <span
-            className="inline-flex h-5 w-5 items-center justify-center rounded border text-[10px] font-bold leading-none shadow-sm"
-            style={tagPillStyle(tag)}
-          >
-            {tag}
+      {[...seen.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([tag, label]) => (
+          <span key={tag} className="flex items-center gap-1.5">
+            <span
+              className="inline-flex h-5 w-5 items-center justify-center rounded border text-[10px] font-bold leading-none shadow-sm"
+              style={tagPillStyle(tag)}
+            >
+              {tag}
+            </span>
+            <span>{label}</span>
           </span>
-          <span>{label}</span>
-        </span>
-      ))}
+        ))}
     </div>
   )
 }
@@ -390,10 +392,7 @@ function SheetMetricsFooter({ totals }: { totals: Totals }) {
         value={`${totals.scrapSqFt.toFixed(2)} sq ft`}
         valueClass="text-red-600"
       />
-      <MetricCard
-        label="Cut Pieces"
-        value={`${totals.partsPlaced + totals.partsOverflow}`}
-      />
+      <MetricCard label="Cut Pieces" value={`${totals.partsPlaced + totals.partsOverflow}`} />
       <MetricCard
         label="Fab Score"
         value={hasFabrication ? `${fabScore100}/100` : "—"}
@@ -731,12 +730,7 @@ function SheetSvg({
           )}
           {/* Placed parts. */}
           {model.parts.map((part, i) => (
-            <PartShape
-              key={`part-${i}`}
-              part={part}
-              layout={layout}
-              debugOptions={debugOptions}
-            />
+            <PartShape key={`part-${i}`} part={part} layout={layout} debugOptions={debugOptions} />
           ))}
         </g>
         <DimensionLabels
@@ -896,9 +890,7 @@ function RegionShape({
       return (
         <>
           <path d={outerPath} fill={fill} opacity="0.95" />
-          {stroke && (
-            <path d={outerPath} fill="none" stroke={stroke} strokeWidth={strokeWidth} />
-          )}
+          {stroke && <path d={outerPath} fill="none" stroke={stroke} strokeWidth={strokeWidth} />}
         </>
       )
     }
@@ -907,15 +899,8 @@ function RegionShape({
       .join(" ")
     return (
       <>
-        <path
-          d={`${outerPath} ${cutoutPaths}`}
-          fill={fill}
-          fillRule="evenodd"
-          opacity="0.95"
-        />
-        {stroke && (
-          <path d={outerPath} fill="none" stroke={stroke} strokeWidth={strokeWidth} />
-        )}
+        <path d={`${outerPath} ${cutoutPaths}`} fill={fill} fillRule="evenodd" opacity="0.95" />
+        {stroke && <path d={outerPath} fill="none" stroke={stroke} strokeWidth={strokeWidth} />}
       </>
     )
   }
@@ -949,12 +934,7 @@ function RegionShape({
     .join(" ")
   return (
     <>
-      <path
-        d={`${rectPath} ${cutoutPaths}`}
-        fill={fill}
-        fillRule="evenodd"
-        opacity="0.95"
-      />
+      <path d={`${rectPath} ${cutoutPaths}`} fill={fill} fillRule="evenodd" opacity="0.95" />
       {stroke && (
         <rect
           x={rx}

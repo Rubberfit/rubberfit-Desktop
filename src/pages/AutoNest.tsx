@@ -341,10 +341,7 @@ export function AutoNestPage() {
   // strategy selector so non-cone workflows don't see an irrelevant
   // control. Reads the canonical Part shape spec rather than the
   // template's `partType` so behavior matches what Rust receives.
-  const hasCones = useMemo(
-    () => packParts.some((p) => p.shapeSpec?.kind === "sector"),
-    [packParts]
-  )
+  const hasCones = useMemo(() => packParts.some((p) => p.shapeSpec?.kind === "sector"), [packParts])
   const canShowPackHullOverlay = hasCones && conePackingMode === "convexHull"
 
   // PDF export consumes layouts. usePackJob owns them now; mirror the

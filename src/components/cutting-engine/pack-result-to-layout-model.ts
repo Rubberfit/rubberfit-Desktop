@@ -88,8 +88,7 @@ export function packResultToLayoutModel(
     // rect). Punching the amber rects out via evenodd makes the
     // scrap polygon truly absent inside each rect — there's nothing
     // left to leak around the edges.
-    const scrap: LayoutRegion[] =
-      binResult?.freeRegions.map(polygonPointsToRegion) ?? []
+    const scrap: LayoutRegion[] = binResult?.freeRegions.map(polygonPointsToRegion) ?? []
     // Inscribed scrap rects retained as a SEPARATE field for the
     // "Show inscribed rects" debug toggle. These are the rectangles
     // `extract_offcuts_with_obstacles` classified below the reusable

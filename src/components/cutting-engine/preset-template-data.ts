@@ -1,4 +1,4 @@
-import type { SimplePartType } from "./NestingVisualizer"
+import type { SimplePartType } from "./nesting-visualizer-types"
 import type { RenderShape } from "./layout-model"
 import type { Point2D } from "@/nesting/types"
 import {

@@ -5,7 +5,7 @@
 //
 // Algorithm 13 is SPP-specific: shrink the strip, re-separate, keep the
 // result iff still feasible. BPP bins are fixed-size (see `separator.rs`
-// deviation #2 — `change_strip_width` was deleted in Task 5). That
+// deviation #2 â€” `change_strip_width` was deleted in Task 5). That
 // leaves Algorithm 13 with no analogue in a fixed-container setting:
 //
 //   1. `Separator::separate()` exits immediately when total loss == 0
@@ -14,7 +14,7 @@
 //      candidates to items with loss > 0 (separator.rs:425).
 //   2. `BppObjective` scores only overflow + placed count; it cannot
 //      detect intra-bin geometry improvements. Adding such a term is
-//      out of scope (Task 1 / Task 18 territory — gated on Task 12
+//      out of scope (Task 1 / Task 18 territory â€” gated on Task 12
 //      cross-bin swap telemetry).
 //   3. Upstream's 20% budget slice earns its cost because strip width
 //      actually improves SPP density. In BPP the slice would be dead
@@ -31,7 +31,7 @@
 // Deviations from upstream:
 //   1. `compression_phase()` returns its input unchanged. Upstream's
 //      shrink-retry loop is deleted in full.
-//   2. No `CompressionConfig` — upstream's fields drove strip-shrink
+//   2. No `CompressionConfig` â€” upstream's fields drove strip-shrink
 //      schedule, which does not apply here.
 //   3. `attempt_to_compress` helper deleted.
 //   4. Logs the decision at `info` level so operators see compress
@@ -42,7 +42,7 @@ use jagua_rs::entities::LayoutSnapshot;
 use log::info;
 
 /// Algorithm 13 from <https://doi.org/10.48550/arXiv.2509.13329>,
-/// BPP-adapted — identity pass-through.
+/// BPP-adapted â€” identity pass-through.
 ///
 /// For fixed-size bins there is no shrink analogue to Algorithm 13's
 /// strip-width compression. Running `Separator::separate` on a feasible
@@ -51,7 +51,7 @@ use log::info;
 /// the faithful BPP port is identity.
 ///
 /// The `&mut Separator` reference is accepted to keep the Task 8
-/// orchestrator signature uniform across `explore → compress`, and so
+/// orchestrator signature uniform across `explore â†’ compress`, and so
 /// that a future real BPP compression can drop in without a call-site
 /// change. The function **reads** `sep.layout` and `sep.instance` for
 /// the single diagnostic `info!` line below and **does not mutate**
@@ -72,7 +72,7 @@ pub fn compression_phase(
 }
 
 // ---------------------------------------------------------------------------
-// Tests — identity + RNG-stream invariants (per Codex sign-off §5)
+// Tests â€” identity + RNG-stream invariants (per Codex sign-off Â§5)
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -97,21 +97,22 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: 1,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(side, 0.0),
                 Point2D::new(side, side),
                 Point2D::new(0.0, side),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
     /// A deliberately-feasible fixture: two 10x10 squares well apart in
-    /// a 100x100 bin. No collisions — directly usable by compression_phase.
+    /// a 100x100 bin. No collisions â€” directly usable by compression_phase.
     fn feasible_fixture() -> (BPInstance, Layout) {
         let bin = Bin {
             bin_id: "test-bin".into(),
@@ -176,8 +177,8 @@ mod tests {
     fn compress_does_not_touch_rng() {
         // The RNG stream must be unperturbed by compression_phase so
         // (explore, compress) is indistinguishable from (explore, no-op).
-        // This is the real determinism invariant at the explore→compress
-        // seam (per Codex §5).
+        // This is the real determinism invariant at the exploreâ†’compress
+        // seam (per Codex Â§5).
         let (instance, layout) = feasible_fixture();
         let mut sep = build_separator(instance, layout);
         let rng_reference = sep.rng.clone();

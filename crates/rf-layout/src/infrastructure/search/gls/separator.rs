@@ -116,7 +116,7 @@ impl AddAssign for SepStats {
 /// Outcome of a `Separator::separate()` call.
 #[derive(Debug)]
 pub enum SeparateOutcome {
-    /// Total loss reached zero — the returned snapshot is collision-free.
+    /// Total loss reached zero â€” the returned snapshot is collision-free.
     Feasible(LayoutSnapshot),
     /// Strike limit reached before feasibility. Payload is the best-seen
     /// layout + its tracker snapshot (preserves GLS weights for the next
@@ -181,12 +181,12 @@ pub struct Separator {
 
 /// One parallel worker. In sparrow the `Vec<SeparatorWorker>` is driven
 /// via rayon; here they run sequentially but preserve Algorithm 10
-/// semantics — each worker starts from a common master and explores a
+/// semantics â€” each worker starts from a common master and explores a
 /// different random item-ordering; only the min-weighted-loss winner is
 /// adopted.
 ///
 /// Workers carry independent RNGs seeded from the master in
-/// `Separator::new`. Sequential execution is fine — the independent seeds
+/// `Separator::new`. Sequential execution is fine â€” the independent seeds
 /// are what guarantee each worker explores a different item-ordering
 /// trajectory. Rayon parallelism returns in Task 18.
 pub struct SeparatorWorker {
@@ -264,7 +264,7 @@ impl Separator {
                 // Task 14: inner-loop cancel polling. Codex-locked:
                 // outer-only polling at `n_strikes` granularity gives
                 // seconds-level cancel latency; checking at every inner
-                // iteration is an `AtomicBool::load(Relaxed)` — fast
+                // iteration is an `AtomicBool::load(Relaxed)` â€” fast
                 // enough to run unconditionally. CompositeTerminator's
                 // `kill()` path short-circuits to the cancel flag after
                 // the deadline check.
@@ -295,12 +295,12 @@ impl Separator {
                     log::warn!(
                         "[SEP] weighted loss increased across an iteration: \
                          {w_loss_before} -> {w_loss} (sample-eval / tracker view divergence, \
-                         not a regression — see Task 9.5 followups)"
+                         not a regression â€” see Task 9.5 followups)"
                     );
                 }
 
                 if loss == 0.0 {
-                    // All collisions resolved — snapshot the winning layout
+                    // All collisions resolved â€” snapshot the winning layout
                     // and exit the outer loop with Feasible.
                     min_loss_sol = (self.layout.save(), self.ct.save());
                     min_loss = 0.0;
@@ -331,10 +331,10 @@ impl Separator {
             }
 
             if initial_strike_loss * 0.98 <= min_loss {
-                // No substantial improvement during this strike — add a strike.
+                // No substantial improvement during this strike â€” add a strike.
                 n_strikes += 1;
             } else {
-                // Substantial progress — reset strike counter.
+                // Substantial progress â€” reset strike counter.
                 n_strikes = 0;
             }
             // Rollback to the best-seen snapshot before the next strike.
@@ -365,7 +365,7 @@ impl Separator {
     /// Algorithm 10 from <https://doi.org/10.48550/arXiv.2509.13329>.
     ///
     /// Workers carry independent RNGs seeded from the master in
-    /// `Separator::new`. Sequential execution is fine — the independent
+    /// `Separator::new`. Sequential execution is fine â€” the independent
     /// seeds are what guarantee each worker explores a different
     /// item-ordering trajectory. Rayon parallelism returns in Task 18.
     fn move_items_multi(&mut self) -> SepStats {
@@ -387,7 +387,7 @@ impl Separator {
         );
 
         // Adopt the min-weighted-loss worker's state into the master.
-        // Every other worker's work is discarded — matches upstream
+        // Every other worker's work is discarded â€” matches upstream
         // `min_by_key(OrderedFloat(total_weighted_loss))`.
         let best_idx = self
             .workers
@@ -416,7 +416,7 @@ impl Separator {
     }
 
     /// Move a placed item to a new transformation. Returns the new
-    /// `PItemKey` — `Layout::place_item` issues a fresh key on every
+    /// `PItemKey` â€” `Layout::place_item` issues a fresh key on every
     /// placement. Task 5 initially dropped this method; Task 6 restored
     /// it because `explore.rs::disrupt_solution` calls it from 4 sites
     /// (two swap moves + per-swap relocations of practically-contained
@@ -459,7 +459,7 @@ impl SeparatorWorker {
 
         for &pk in candidates.iter() {
             // An earlier move may have already cleared this item's
-            // collision — check loss again before acting.
+            // collision â€” check loss again before acting.
             if self.ct.get_loss(pk) > 0.0 {
                 let item_id = self.layout.placed_items[pk].item_id;
                 let item = self.instance.item(item_id);
@@ -522,21 +522,22 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: 1,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(side, 0.0),
                 Point2D::new(side, side),
                 Point2D::new(0.0, side),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
     /// Build a BPInstance + Layout with the given items placed at the
-    /// given (tx, ty) offsets. Overlapping placements are allowed —
+    /// given (tx, ty) offsets. Overlapping placements are allowed â€”
     /// `Layout::place_item` does not reject them, only the CDE records
     /// hazards.
     fn tiny_fixture(
@@ -606,7 +607,7 @@ mod tests {
     fn separate_infeasible_exits_at_strike_limit() {
         // Two 80x80 squares in a 100x100 bin cannot fit without overlap
         // (each takes 64% of the bin area). Place them at (5,5) and
-        // (15,15) — initial overlap is load-bearing; do NOT "fix" the
+        // (15,15) â€” initial overlap is load-bearing; do NOT "fix" the
         // fixture by spreading them out.
         let parts = vec![square_part("big-a", 80.0), square_part("big-b", 80.0)];
         let (instance, layout) = tiny_fixture(100.0, &parts, &[(0, 5.0, 5.0), (1, 15.0, 15.0)]);
@@ -639,7 +640,7 @@ mod tests {
 
     #[test]
     fn separate_respects_terminator() {
-        // Terminator::kill() always true — separate() must short-circuit
+        // Terminator::kill() always true â€” separate() must short-circuit
         // before doing work. Starts from an overlapping seed so loss > 0,
         // which forces the Infeasible branch. Also asserts that no work
         // happened (loss unchanged), so a future refactor that moves

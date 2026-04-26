@@ -53,6 +53,12 @@ export interface PlacedPart {
 
   /** Actual placed polygon vertices (inches, post-rotation). Present for non-rect shapes. */
   polygon?: Array<{ x: number; y: number }>
+  /**
+   * Optional debug overlay polygon when jagua's collision surface
+   * differs from the render shape. Today this is the cone convex-hull
+   * overlay in default packing; precise annular cone packing omits it.
+   */
+  packPolygon?: Array<{ x: number; y: number }>
   cutDirection?: SimpleCutDirection
   flipped?: boolean
   rotated90?: boolean
@@ -74,7 +80,27 @@ export interface LayoutModel {
 
   parts: PlacedPart[]
   offcuts: LayoutRegion[]
+  /**
+   * Bin-wide free-space polygons (`BinResult.freeRegions`) — the
+   * Rust-side `stock − parts` boolean diff, CCW-wound. AutoNest paints
+   * each as the red waste pattern with placed parts AND reusable
+   * offcut rects punched out as evenodd holes. Painting the whole
+   * residual (not just the inscribed scrap rects) keeps the visual
+   * waste coverage consistent with the displayed `scrapAreaSqFt`
+   * total; the evenodd punch on amber rects prevents the original
+   * sub-grid red rim that drove the previous rect-only rendering.
+   */
   scrap: LayoutRegion[]
+
+  /**
+   * Inscribed-rect debug overlay — every rectangle the Rust
+   * `extract_offcuts_with_obstacles` pass classified as Scrap (below
+   * Reusable thresholds). Production rendering ignores this; the
+   * AutoNest visualizer paints them with a dashed darker outline only
+   * when the operator toggles the "Show inscribed rects" tick. Useful
+   * for debugging the histogram + monotonic-stack extractor's output.
+   */
+  debugScrapRects?: LayoutRegion[]
 
   placedCount: number
   overflowCount: number
@@ -83,7 +109,15 @@ export interface LayoutModel {
   scrapAreaSqFt: number
   fabScore: number
 
-  source: "ts-nfp"
+  /**
+   * Origin of this layout model.
+   * - `"ts-nfp"`: legacy TypeScript NFP greedy placer (being retired
+   *   in issue #12).
+   * - `"rust-rf-layout"`: Rust `pack_lbf_lns` pipeline via Tauri
+   *   `pack_job` invoke. Free-space polygons + classified offcuts
+   *   come back from `BinResult.freeRegions` / `BinResult.offcuts`.
+   */
+  source: "ts-nfp" | "rust-rf-layout"
 }
 
 // ── Normaliser ───────────────────────────────────────────────────────────────

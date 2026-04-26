@@ -1,12 +1,12 @@
 // engine/crates/rf-layout/src/infrastructure/search/assignment/cross_bin_swap.rs
 //
-// Cross-bin swap operators. Fresh BPP-specific code — sparrow is SPP
+// Cross-bin swap operators. Fresh BPP-specific code â€” sparrow is SPP
 // (single-bin strip packing) and has no cross-bin primitives.
 //
 // Three operators (all return `Result<Option<FfdAssignment>, PackError>`):
-//   - `swap_two(a, b)`       — exchange one shape between two bins.
-//   - `migrate(a -> b, max)` — transactional prefix migration.
-//   - `unload_lightest_bin`  — single-shot transactional full unload.
+//   - `swap_two(a, b)`       â€” exchange one shape between two bins.
+//   - `migrate(a -> b, max)` â€” transactional prefix migration.
+//   - `unload_lightest_bin`  â€” single-shot transactional full unload.
 //
 // All three:
 //   1. Operate on **copy-count state** (`Q[b][s]` maps) so the
@@ -28,13 +28,13 @@ use crate::infrastructure::warm_start::{greedy_bottom_left, SeedResult};
 use std::collections::HashMap;
 
 /// Shared operator return type.
-///   - `Err(PackError)`  — probe failed / bad polygon / invariant violation.
-///   - `Ok(None)`        — evaluated, no feasible improving move exists.
-///   - `Ok(Some(asn))`   — one strictly-improving move committed.
+///   - `Err(PackError)`  â€” probe failed / bad polygon / invariant violation.
+///   - `Ok(None)`        â€” evaluated, no feasible improving move exists.
+///   - `Ok(Some(asn))`   â€” one strictly-improving move committed.
 pub type OpResult = Result<Option<FfdAssignment>, PackError>;
 
 /// Lexicographic acceptance score: closed bins first, sum of per-bin
-/// concentration (used² / stock) second. Accept iff `after > before`.
+/// concentration (usedÂ² / stock) second. Accept iff `after > before`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Score(pub u32, pub f64);
 
@@ -48,7 +48,7 @@ impl PartialOrd for Score {
 }
 
 // ---------------------------------------------------------------------------
-// State model — count maps are the truth; placements are output.
+// State model â€” count maps are the truth; placements are output.
 // ---------------------------------------------------------------------------
 
 type AssignmentState = Vec<HashMap<String, u32>>;
@@ -127,11 +127,11 @@ fn polygon_area(poly: &[rf_geom::domain::Point2D]) -> f64 {
     s.abs() / 2.0
 }
 
-/// Precompute area per shape_id (polygon, not bbox — Codex sign-off fix).
+/// Precompute area per shape_id (polygon, not bbox â€” Codex sign-off fix).
 fn item_areas(items: &[Part]) -> HashMap<String, f64> {
     items
         .iter()
-        .map(|p| (p.shape_id.clone(), polygon_area(&p.polygon)))
+        .map(|p| (p.shape_id.clone(), polygon_area(p.polygon_slice())))
         .collect()
 }
 
@@ -185,7 +185,7 @@ fn shape_sort_keys(items: &[Part]) -> HashMap<String, (f64, f64)> {
     items
         .iter()
         .map(|p| {
-            let bbox = rf_geom::application::bbox_of(&p.polygon).unwrap_or((
+            let bbox = rf_geom::application::bbox_of(p.polygon_slice()).unwrap_or((
                 rf_geom::domain::Point2D::new(0.0, 0.0),
                 rf_geom::domain::Point2D::new(0.0, 0.0),
             ));
@@ -247,7 +247,7 @@ fn assert_per_shape_conservation(
 /// Exchange one shape between two bins. Returns `Ok(Some(asn))` only
 /// if some swap strictly improves the lex score.
 ///
-/// Canonical scan order: for shape pair `(s, t)` in bin A × bin B (in
+/// Canonical scan order: for shape pair `(s, t)` in bin A Ã— bin B (in
 /// FFD key order), skip `s == t` (no-op). First strictly-improving swap
 /// under canonical order wins on ties.
 pub fn swap_two(
@@ -462,7 +462,7 @@ pub fn unload_lightest_bin(
         }
     }
 
-    // Shadow state — we'll commit only if EVERY unit finds a home.
+    // Shadow state â€” we'll commit only if EVERY unit finds a home.
     let mut shadow = state.clone();
 
     for unit_shape in &source_units {
@@ -520,7 +520,7 @@ pub fn unload_lightest_bin(
 }
 
 // ---------------------------------------------------------------------------
-// Operator 4: consolidate_tail_bin (Tier 6 — tail-remnant preservation)
+// Operator 4: consolidate_tail_bin (Tier 6 â€” tail-remnant preservation)
 // ---------------------------------------------------------------------------
 
 /// Tier 6: tail-remnant preservation operator (Codex-designed).
@@ -529,11 +529,11 @@ pub fn unload_lightest_bin(
 /// a fixed-layout `bin_fits` oracle, this operator **repacks the
 /// receiver bin from scratch** with an augmented item multiset. On
 /// the production 2-bin regression this matters because bin-packing's
-/// MaxRects BSSF is greedy — its per-item FFD probe commits to a
+/// MaxRects BSSF is greedy â€” its per-item FFD probe commits to a
 /// layout that can't admit additional items, but a multi-item repack
 /// may find a different layout that fits.
 ///
-/// Algorithm (Codex report §1, commit-1 minimal variant):
+/// Algorithm (Codex report Â§1, commit-1 minimal variant):
 ///   1. Require `n_bins == 2`, no overflow, both bins non-empty, and
 ///      the least-loaded bin's current tail height < TAIL_COLLAPSED_IN.
 ///   2. Pick the **tail candidate** (source) = least-loaded bin.
@@ -541,7 +541,7 @@ pub fn unload_lightest_bin(
 ///      (top_edge desc, area asc, shape_id asc, bin_id asc).
 ///      Top-edge targeting is critical: tail only improves by removing
 ///      shapes that touch the current top envelope.
-///   4. For K ∈ [1, K_MAX]: take first K units. Shadow-state:
+///   4. For K âˆˆ [1, K_MAX]: take first K units. Shadow-state:
 ///      remove K from source, add K to receiver.
 ///   5. Repack receiver from scratch with BSSF; on overflow, try
 ///      BottomLeft. Repack source from scratch (removing K can collapse
@@ -566,7 +566,7 @@ pub fn consolidate_tail_bin(
 ) -> OpResult {
     use crate::infrastructure::warm_start::{greedy_rectangle_pack_with_strategy, PackerStrategy};
 
-    // K_MAX bumped from Codex's initial 6 → 12. Bench showed K=1 was
+    // K_MAX bumped from Codex's initial 6 â†’ 12. Bench showed K=1 was
     // the best commit in the narrow variant because the BSSF receiver
     // couldn't admit K>1. With Auto in the portfolio, K up to 12 is
     // worth evaluating to let larger multi-item swaps discover better
@@ -614,10 +614,10 @@ pub fn consolidate_tail_bin(
         (0usize, 1usize)
     };
 
-    // Gate 4: tail must be "collapsed" — otherwise there's nothing to
+    // Gate 4: tail must be "collapsed" â€” otherwise there's nothing to
     // gain. The tail candidate bin's tail_free should be below
     // TAIL_COLLAPSED_IN. (On the production fixture both bins have
-    // tail_free ≈ 0", so this trips true.)
+    // tail_free â‰ˆ 0", so this trips true.)
     if tail_free[source_idx] >= TAIL_COLLAPSED_IN {
         return Ok(None);
     }
@@ -668,7 +668,7 @@ pub fn consolidate_tail_bin(
         for (_, _, shape_id, _) in prefix {
             let entry = shadow[source_idx].entry(shape_id.clone()).or_insert(0);
             if *entry == 0 {
-                // unexpected — abort
+                // unexpected â€” abort
                 shadow = state.clone();
                 break;
             }
@@ -682,7 +682,7 @@ pub fn consolidate_tail_bin(
             strip_zero(counts);
         }
 
-        // Repack RECEIVER with portfolio: BSSF → BottomLeft → Auto.
+        // Repack RECEIVER with portfolio: BSSF â†’ BottomLeft â†’ Auto.
         // Auto is expensive but runs each prefix at most once; on a
         // 2-bin job this stays well under the 700ms local budget.
         let receiver_items = materialize_parts(&shadow[receiver_idx], items);
@@ -712,10 +712,10 @@ pub fn consolidate_tail_bin(
         };
         let receiver_result = match receiver_result {
             Some(r) => r,
-            None => continue, // receiver won't absorb K items — try other K
+            None => continue, // receiver won't absorb K items â€” try other K
         };
 
-        // Repack SOURCE (BSSF only — we want faithful tail height).
+        // Repack SOURCE (BSSF only â€” we want faithful tail height).
         let source_items = materialize_parts(&shadow[source_idx], items);
         let source_result = if source_items.is_empty() {
             SeedResult {
@@ -799,16 +799,17 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
@@ -847,7 +848,7 @@ mod tests {
     #[test]
     fn swap_two_rejects_infeasible() {
         // A has one 10x10, B has one 25x25. Swap would put 25x25 on A
-        // (20x20 bin) → infeasible.
+        // (20x20 bin) â†’ infeasible.
         let bins_spec = vec![bin("A", 20.0, 20.0), bin("B", 30.0, 30.0)];
         let items = vec![
             rect_part("small", 1, 10.0, 10.0),
@@ -861,7 +862,7 @@ mod tests {
     #[test]
     fn swap_two_rejects_equal_score() {
         // Symmetric setup: swapping two identical-area shapes gives
-        // identical score → must return None (no cycling).
+        // identical score â†’ must return None (no cycling).
         let bins_spec = vec![bin("A", 30.0, 30.0), bin("B", 30.0, 30.0)];
         let items = vec![
             rect_part("sq10", 1, 10.0, 10.0),
@@ -906,14 +907,14 @@ mod tests {
 
     #[test]
     fn migrate_moves_largest_feasible_prefix() {
-        // A is the BIGGER bin (50×50) with 3× 5×5 items; B is a smaller
-        // 15×15 bin that also fits all 3. Migrating A→B leaves A empty
-        // (closed_bins 0→1) AND concentration improves because the same
-        // load now sits on a smaller stock → strictly better score.
+        // A is the BIGGER bin (50Ã—50) with 3Ã— 5Ã—5 items; B is a smaller
+        // 15Ã—15 bin that also fits all 3. Migrating Aâ†’B leaves A empty
+        // (closed_bins 0â†’1) AND concentration improves because the same
+        // load now sits on a smaller stock â†’ strictly better score.
         let bins_spec = vec![bin("A", 50.0, 50.0), bin("B", 15.0, 15.0)];
         let items = vec![rect_part("s", 3, 5.0, 5.0)];
         let (asn, bs, it) = assignment_with(bins_spec, items);
-        // FFD puts 3× s in A (priority ties, input order 0 wins).
+        // FFD puts 3Ã— s in A (priority ties, input order 0 wins).
         assert_eq!(asn.per_bin[0].placements.len(), 3);
         assert_eq!(asn.per_bin[1].placements.len(), 0);
         let out = migrate(&asn, 0, 1, None, &bs, &it, 0.0).unwrap();
@@ -979,11 +980,11 @@ mod tests {
 
     #[test]
     fn unload_empties_bin_when_possible() {
-        // A (15×15) has 1× 5×5. B (50×50) already has 1× 40×40. FFD
-        // routes the 40×40 to B (only bin big enough) and the 5×5 to A
-        // (priority-ties → input order). unload picks A (smallest
+        // A (15Ã—15) has 1Ã— 5Ã—5. B (50Ã—50) already has 1Ã— 40Ã—40. FFD
+        // routes the 40Ã—40 to B (only bin big enough) and the 5Ã—5 to A
+        // (priority-ties â†’ input order). unload picks A (smallest
         // density among non-empty), migrates its copy into B (fits:
-        // 40+5 = 45 ≤ 50). After: A empty → closed_bins 0→1 → score
+        // 40+5 = 45 â‰¤ 50). After: A empty â†’ closed_bins 0â†’1 â†’ score
         // improves lexicographically even though concentration drops.
         let bins_spec = vec![bin("A", 15.0, 15.0), bin("B", 50.0, 50.0)];
         let items = vec![rect_part("s", 1, 5.0, 5.0), rect_part("big", 1, 40.0, 40.0)];
@@ -1007,8 +1008,8 @@ mod tests {
         // return None (no partial commit).
         let bins_spec = vec![bin("A", 20.0, 30.0), bin("B", 10.0, 10.0)];
         let items = vec![rect_part("s", 3, 5.0, 5.0), rect_part("big", 1, 10.0, 5.0)];
-        // Craft scenario via FFD: big → A (via priority or first-fit),
-        // then s×3 need to go somewhere. Actually simpler: manually
+        // Craft scenario via FFD: big â†’ A (via priority or first-fit),
+        // then sÃ—3 need to go somewhere. Actually simpler: manually
         // set the assignment to have [A: {s:3}, B: {big:1}].
         // For now test the direct unload behavior using ffd_assign output.
         let (asn, bs, it) = assignment_with(bins_spec, items);
@@ -1036,7 +1037,7 @@ mod tests {
     #[test]
     fn unload_returns_none_on_empty_source() {
         // Single bin, single item. Unload can't find any source with
-        // a bin to move into → Ok(None).
+        // a bin to move into â†’ Ok(None).
         let bins_spec = vec![bin("A", 30.0, 30.0)];
         let items = vec![rect_part("s", 1, 5.0, 5.0)];
         let (asn, bs, it) = assignment_with(bins_spec, items);

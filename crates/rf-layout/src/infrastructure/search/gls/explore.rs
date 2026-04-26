@@ -36,7 +36,7 @@
 //   8. disrupt_solution's sep.move_item calls use the Task 6-restored
 //      public method on Separator.
 //   9. practically_contained_items ported verbatim as a private fn
-//      at bottom of this file — Layout-generic, no retyping.
+//      at bottom of this file â€” Layout-generic, no retyping.
 //   10. FMT logging helper replaced with inline `{:.4}` format specs.
 
 use super::separator::{SeparateOutcome, Separator};
@@ -62,7 +62,7 @@ use std::cmp::Reverse;
 
 /// Runtime configuration for `exploration_phase`. Defaults mirror
 /// sparrow's `ExplorationConfig::paper_defaults` (upstream `config.rs`
-/// L55-74). `shrink_step` and `time_limit` intentionally omitted —
+/// L55-74). `shrink_step` and `time_limit` intentionally omitted â€”
 /// the first is SPP-only, the second belongs on the Terminator.
 #[derive(Debug, Clone, Copy)]
 pub struct ExplorationConfig {
@@ -87,7 +87,7 @@ impl ExplorationConfig {
 /// Outcome of `exploration_phase`.
 #[derive(Debug)]
 pub enum ExplorationOutcome {
-    /// First feasibility reached — return the collision-free layout
+    /// First feasibility reached â€” return the collision-free layout
     /// immediately. Per-bin density is fixed once feasible in BPP.
     Feasible(LayoutSnapshot),
     /// Ran out of budget or exhausted `max_conseq_failed_attempts`
@@ -110,7 +110,7 @@ pub enum ExplorationOutcome {
 /// Loop: call `sep.separate`. On `Feasible` return immediately (density
 /// is fixed by the item set). On `Infeasible` insert into a loss-sorted
 /// pool, biased-sample a restart via normal distribution, rollback with
-/// fresh tracker (upstream semantic — escape behavior), and disrupt
+/// fresh tracker (upstream semantic â€” escape behavior), and disrupt
 /// via swap-two-large.
 pub fn exploration_phase(
     sep: &mut Separator,
@@ -180,7 +180,7 @@ pub fn exploration_phase(
                     config.solution_pool_distribution_stddev,
                 );
 
-                // Fresh tracker (upstream L79 uses None) — discards
+                // Fresh tracker (upstream L79 uses None) â€” discards
                 // GLS weights as part of the paper's escape behaviour.
                 sep.rollback(selected_snap, None);
                 disrupt_solution(sep, config);
@@ -306,7 +306,7 @@ fn disrupt_solution(sep: &mut Separator, config: &ExplorationConfig) {
     let pi1_diam = sep.layout.placed_items[pk1].shape.diameter;
 
     // Second item: differ from the first in BOTH area AND diameter
-    // (upstream explore.rs L147-152 uses && — a sufficiently different
+    // (upstream explore.rs L147-152 uses && â€” a sufficiently different
     // second item guarantees the swap perturbs the layout). Fall back
     // to any other placed item if that filter finds nothing.
     let pk2 = large
@@ -331,7 +331,7 @@ fn disrupt_solution(sep: &mut Separator, config: &ExplorationConfig) {
     let dt1_old = sep.layout.placed_items[pk1].d_transf;
     let dt2_old = sep.layout.placed_items[pk2].d_transf;
 
-    // Rotation-feasible adjustment — items with fixed rotations must
+    // Rotation-feasible adjustment â€” items with fixed rotations must
     // snap to allowed angles. Helper was already ported in Task 4
     // (uniform_sampler.rs L135).
     let item1_id = sep.layout.placed_items[pk1].item_id;
@@ -429,16 +429,17 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: 1,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(side, 0.0),
                 Point2D::new(side, side),
                 Point2D::new(0.0, side),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
@@ -476,7 +477,7 @@ mod tests {
 
     #[test]
     fn explore_feasible_fast_path() {
-        // Two 10x10 squares placed well apart in a 100x100 bin — first
+        // Two 10x10 squares placed well apart in a 100x100 bin â€” first
         // separate() returns Feasible; explore exits with Feasible.
         let parts = vec![square_part("a", 10.0), square_part("b", 10.0)];
         let (instance, layout) = tiny_fixture(100.0, &parts, &[(0, 10.0, 10.0), (1, 50.0, 50.0)]);
@@ -497,7 +498,7 @@ mod tests {
 
     #[test]
     fn explore_resolves_overlap() {
-        // Two 10x10 squares at (10,10)/(15,15) — 50% overlap. Expect the
+        // Two 10x10 squares at (10,10)/(15,15) â€” 50% overlap. Expect the
         // inner Separator to resolve.
         let parts = vec![square_part("a", 10.0), square_part("b", 10.0)];
         let (instance, layout) = tiny_fixture(100.0, &parts, &[(0, 10.0, 10.0), (1, 15.0, 15.0)]);
@@ -558,7 +559,7 @@ mod tests {
         // KillImmediately -> fall-through path returns Infeasible from
         // the current (still-overlapping) layout without running any
         // separate iteration. Must also return the EXACT pre-call
-        // layout snapshot — not just unchanged loss — so a future
+        // layout snapshot â€” not just unchanged loss â€” so a future
         // refactor that runs `sep.layout.save()` partway through the
         // kill path would fail this test (Codex impl-review fix).
         struct KillImmediately;

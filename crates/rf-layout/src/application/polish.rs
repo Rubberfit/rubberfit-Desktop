@@ -23,6 +23,9 @@
 // for the full research + ranked options that led here.
 
 use crate::domain::Placement;
+use rf_geom::domain::Point2D;
+
+const COLLISION_EPS: f64 = 1e-7;
 
 /// Axis-aligned bounding box of a placement's polygon in world coords.
 /// `Placement.x / .y` are the jagua rotation-origin translation (not
@@ -41,6 +44,177 @@ fn placement_bbox(p: &Placement) -> (f64, f64, f64, f64) {
         ),
         |(mnx, mny, mxx, mxy), v| (mnx.min(v.x), mny.min(v.y), mxx.max(v.x), mxy.max(v.y)),
     )
+}
+
+// Pack-surface overlap helpers used to keep post-pack movement collision-safe.
+fn collision_surface(p: &Placement) -> &[Point2D] {
+    p.pack_polygon
+        .as_deref()
+        .filter(|poly| poly.len() >= 3)
+        .unwrap_or(&p.polygon)
+}
+
+pub(crate) fn placements_have_pack_surface_overlap(placements: &[Placement]) -> bool {
+    for i in 0..placements.len() {
+        for j in (i + 1)..placements.len() {
+            if polygons_overlap(
+                collision_surface(&placements[i]),
+                collision_surface(&placements[j]),
+            ) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn placement_collides_after_shift(
+    placements: &[Placement],
+    item_idx: usize,
+    dx: f64,
+    dy: f64,
+) -> bool {
+    let surface = collision_surface(&placements[item_idx]);
+    if surface.len() < 3 {
+        return false;
+    }
+    let shifted: Vec<Point2D> = surface
+        .iter()
+        .map(|p| Point2D::new(p.x + dx, p.y + dy))
+        .collect();
+
+    placements
+        .iter()
+        .enumerate()
+        .any(|(idx, other)| idx != item_idx && polygons_overlap(&shifted, collision_surface(other)))
+}
+
+fn polygons_overlap(a: &[Point2D], b: &[Point2D]) -> bool {
+    if a.len() < 3 || b.len() < 3 {
+        return false;
+    }
+
+    let a_bbox = points_bbox(a);
+    let b_bbox = points_bbox(b);
+    if !bboxes_overlap(a_bbox, b_bbox) {
+        return false;
+    }
+
+    if has_proper_segment_intersection(a, b) {
+        return true;
+    }
+    if a.iter().any(|p| point_strictly_in_polygon(*p, b))
+        || b.iter().any(|p| point_strictly_in_polygon(*p, a))
+    {
+        return true;
+    }
+
+    !has_separating_axis(a, b) && !has_separating_axis(b, a)
+}
+
+fn points_bbox(points: &[Point2D]) -> (f64, f64, f64, f64) {
+    points.iter().fold(
+        (
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ),
+        |(mnx, mny, mxx, mxy), p| (mnx.min(p.x), mny.min(p.y), mxx.max(p.x), mxy.max(p.y)),
+    )
+}
+
+fn bboxes_overlap(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> bool {
+    a.2 > b.0 + COLLISION_EPS
+        && b.2 > a.0 + COLLISION_EPS
+        && a.3 > b.1 + COLLISION_EPS
+        && b.3 > a.1 + COLLISION_EPS
+}
+
+fn has_proper_segment_intersection(a: &[Point2D], b: &[Point2D]) -> bool {
+    for i in 0..a.len() {
+        let a1 = a[i];
+        let a2 = a[(i + 1) % a.len()];
+        for j in 0..b.len() {
+            let b1 = b[j];
+            let b2 = b[(j + 1) % b.len()];
+            if segments_cross_strict(a1, a2, b1, b2) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn segments_cross_strict(a: Point2D, b: Point2D, c: Point2D, d: Point2D) -> bool {
+    let o1 = orient(a, b, c);
+    let o2 = orient(a, b, d);
+    let o3 = orient(c, d, a);
+    let o4 = orient(c, d, b);
+    o1 * o2 < -COLLISION_EPS && o3 * o4 < -COLLISION_EPS
+}
+
+fn orient(a: Point2D, b: Point2D, c: Point2D) -> f64 {
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+}
+
+fn point_strictly_in_polygon(p: Point2D, polygon: &[Point2D]) -> bool {
+    if polygon
+        .iter()
+        .enumerate()
+        .any(|(i, a)| point_on_segment(p, *a, polygon[(i + 1) % polygon.len()]))
+    {
+        return false;
+    }
+
+    let mut inside = false;
+    let mut j = polygon.len() - 1;
+    for i in 0..polygon.len() {
+        let pi = polygon[i];
+        let pj = polygon[j];
+        if (pi.y > p.y) != (pj.y > p.y) {
+            let x = pi.x + (p.y - pi.y) * (pj.x - pi.x) / (pj.y - pi.y);
+            if p.x < x {
+                inside = !inside;
+            }
+        }
+        j = i;
+    }
+    inside
+}
+
+fn point_on_segment(p: Point2D, a: Point2D, b: Point2D) -> bool {
+    orient(a, b, p).abs() <= COLLISION_EPS
+        && p.x >= a.x.min(b.x) - COLLISION_EPS
+        && p.x <= a.x.max(b.x) + COLLISION_EPS
+        && p.y >= a.y.min(b.y) - COLLISION_EPS
+        && p.y <= a.y.max(b.y) + COLLISION_EPS
+}
+
+fn has_separating_axis(a: &[Point2D], b: &[Point2D]) -> bool {
+    for i in 0..a.len() {
+        let p1 = a[i];
+        let p2 = a[(i + 1) % a.len()];
+        let axis = Point2D::new(-(p2.y - p1.y), p2.x - p1.x);
+        if axis.x.abs() <= COLLISION_EPS && axis.y.abs() <= COLLISION_EPS {
+            continue;
+        }
+        let (a_min, a_max) = project(a, axis);
+        let (b_min, b_max) = project(b, axis);
+        if a_max <= b_min + COLLISION_EPS || b_max <= a_min + COLLISION_EPS {
+            return true;
+        }
+    }
+    false
+}
+
+fn project(points: &[Point2D], axis: Point2D) -> (f64, f64) {
+    points
+        .iter()
+        .map(|p| p.x * axis.x + p.y * axis.y)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), d| {
+            (mn.min(d), mx.max(d))
+        })
 }
 
 /// Minimum reusable offcut: 11.5" × 12" in either orientation.
@@ -283,6 +457,50 @@ enum Axis {
     Y,
 }
 
+fn collision_safe_slide_delta(
+    placements: &[Placement],
+    item_idx: usize,
+    axis: Axis,
+    requested_delta: f64,
+    min_improvement: f64,
+) -> f64 {
+    if requested_delta <= min_improvement {
+        return 0.0;
+    }
+
+    let shift_for = |delta: f64| match axis {
+        Axis::X => (-delta, 0.0),
+        Axis::Y => (0.0, -delta),
+    };
+
+    let (full_dx, full_dy) = shift_for(requested_delta);
+    if !placement_collides_after_shift(placements, item_idx, full_dx, full_dy) {
+        return requested_delta;
+    }
+
+    if placement_collides_after_shift(placements, item_idx, 0.0, 0.0) {
+        return 0.0;
+    }
+
+    let mut lo = 0.0;
+    let mut hi = requested_delta;
+    for _ in 0..32 {
+        let mid = (lo + hi) / 2.0;
+        let (dx, dy) = shift_for(mid);
+        if placement_collides_after_shift(placements, item_idx, dx, dy) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+
+    if lo > min_improvement {
+        lo
+    } else {
+        0.0
+    }
+}
+
 /// Configuration for `polish_placements`.
 #[derive(Clone, Debug)]
 pub struct PolishConfig {
@@ -338,9 +556,10 @@ pub fn polish_placements(
         });
         for &i in &order {
             let dx = max_slide_toward_origin_delta(&placed, i, Axis::X, cfg.clearance);
-            if dx > cfg.min_improvement {
-                translate_placement(&mut placed[i], -dx, 0.0);
-                moved_by = moved_by.max(dx);
+            let safe_dx = collision_safe_slide_delta(&placed, i, Axis::X, dx, cfg.min_improvement);
+            if safe_dx > cfg.min_improvement {
+                translate_placement(&mut placed[i], -safe_dx, 0.0);
+                moved_by = moved_by.max(safe_dx);
             }
         }
 
@@ -353,9 +572,10 @@ pub fn polish_placements(
         });
         for &i in &order {
             let dy = max_slide_toward_origin_delta(&placed, i, Axis::Y, cfg.clearance);
-            if dy > cfg.min_improvement {
-                translate_placement(&mut placed[i], 0.0, -dy);
-                moved_by = moved_by.max(dy);
+            let safe_dy = collision_safe_slide_delta(&placed, i, Axis::Y, dy, cfg.min_improvement);
+            if safe_dy > cfg.min_improvement {
+                translate_placement(&mut placed[i], 0.0, -safe_dy);
+                moved_by = moved_by.max(safe_dy);
             }
         }
 
@@ -374,6 +594,12 @@ fn translate_placement(p: &mut Placement, dx: f64, dy: f64) {
     for v in &mut p.polygon {
         v.x += dx;
         v.y += dy;
+    }
+    if let Some(pack_polygon) = &mut p.pack_polygon {
+        for v in pack_polygon {
+            v.x += dx;
+            v.y += dy;
+        }
     }
 }
 
@@ -399,6 +625,26 @@ mod tests {
             width: w,
             height: h,
             difficulty: None,
+            tag: None,
+            pack_polygon: None,
+        }
+    }
+
+    fn polygon_placement(shape_id: &str, points: Vec<Point2D>) -> Placement {
+        let (min_x, min_y, max_x, max_y) = points_bbox(&points);
+        Placement {
+            shape_id: shape_id.into(),
+            instance_index: 0,
+            bin_id: "b1".into(),
+            x: min_x,
+            y: min_y,
+            rotation_rad: 0.0,
+            polygon: points.clone(),
+            width: (max_x - min_x).max(0.0),
+            height: (max_y - min_y).max(0.0),
+            difficulty: None,
+            tag: None,
+            pack_polygon: Some(points),
         }
     }
 
@@ -488,6 +734,57 @@ mod tests {
     }
 
     #[test]
+    fn translate_placement_keeps_pack_polygon_aligned() {
+        let mut p = rect("cone", 20.0, 30.0, 10.0, 10.0);
+        p.pack_polygon = Some(vec![
+            Point2D::new(20.0, 30.0),
+            Point2D::new(32.0, 30.0),
+            Point2D::new(32.0, 42.0),
+            Point2D::new(20.0, 42.0),
+        ]);
+
+        translate_placement(&mut p, -7.0, 5.0);
+
+        let hull = p.pack_polygon.expect("test placement has pack hull");
+        assert_eq!(hull[0], Point2D::new(13.0, 35.0));
+        assert_eq!(hull[2], Point2D::new(25.0, 47.0));
+    }
+
+    #[test]
+    fn polish_does_not_slide_overlapping_aabbs_into_pack_polygon_collision() {
+        // Two cone-hull-like triangles whose AABBs overlap but whose
+        // pack surfaces are separated by their diagonal edges. The
+        // old polish blocker saw no fully-left AABB blocker for `b`
+        // and slid it to x=0, creating a real polygon overlap.
+        let placements = vec![
+            polygon_placement(
+                "a",
+                vec![
+                    Point2D::new(0.0, 0.0),
+                    Point2D::new(45.0, 0.0),
+                    Point2D::new(0.0, 20.0),
+                ],
+            ),
+            polygon_placement(
+                "b",
+                vec![
+                    Point2D::new(65.0, 0.0),
+                    Point2D::new(65.0, 20.0),
+                    Point2D::new(40.0, 20.0),
+                ],
+            ),
+        ];
+        assert!(!placements_have_pack_surface_overlap(&placements));
+
+        let polished = polish_placements(&placements, 100.0, 100.0, &PolishConfig::default());
+
+        assert!(
+            !placements_have_pack_surface_overlap(&polished),
+            "polish must not introduce pack-surface overlap"
+        );
+    }
+
+    #[test]
     fn polish_never_creates_overlaps() {
         // 10 rects in an 80×80 bin, placed with gaps. Polish should
         // preserve non-overlap throughout.
@@ -503,22 +800,9 @@ mod tests {
             })
             .collect();
         let polished = polish_placements(&placements, 80.0, 80.0, &PolishConfig::default());
-        // Pairwise overlap check.
-        for i in 0..polished.len() {
-            for j in (i + 1)..polished.len() {
-                let a = &polished[i];
-                let b = &polished[j];
-                let disjoint = a.x + a.width <= b.x
-                    || b.x + b.width <= a.x
-                    || a.y + a.height <= b.y
-                    || b.y + b.height <= a.y;
-                assert!(
-                    disjoint,
-                    "overlap after polish: {:?} vs {:?}",
-                    (a.x, a.y, a.width, a.height),
-                    (b.x, b.y, b.width, b.height)
-                );
-            }
-        }
+        assert!(
+            !placements_have_pack_surface_overlap(&polished),
+            "polish must preserve non-overlap"
+        );
     }
 }

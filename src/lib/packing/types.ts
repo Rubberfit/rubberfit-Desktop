@@ -45,11 +45,27 @@ export type GrainAxis = "width" | "length" | "none"
 export interface Part {
   shapeId: string
   quantity: number
-  polygon: Point2D[]
+  /**
+   * Pre-built polygon vertices in part-local coords. Reserved for
+   * raw-geometry callers (DXF imports, hand-drawn shapes). Auto-nest
+   * spec-able shapes (rect, circle, trapezoid, ngon, sector) ship
+   * `shapeSpec` only and rely on Rust to materialise the polygon at
+   * pack time. See `crates/rf-layout/src/application/shape_builder.rs`.
+   */
+  polygon?: Point2D[]
   shapeSpec?: ShapeSpec | null
   allowRotation: boolean
   grainAxis?: GrainAxis | null
   difficulty?: number | null
+  /**
+   * Caller-owned opaque label echoed verbatim onto every `Placement`
+   * the Rust pipeline produces for this shape. AutoNest tags
+   * placements with the part number ("G2") or a generated letter
+   * ("A", "B", "C…"). Rust never inspects, mutates, or fabricates
+   * the value — it round-trips a TypeScript-owned string per the
+   * architectural decision recorded in the Phase A migration plan.
+   */
+  tag?: string | null
 }
 
 export interface OperatorProfile {
@@ -65,6 +81,60 @@ export type PackMode = "fast" | "balanced" | "thorough"
 // caller sends it.
 export type PackEngine = "default" | "lbf" | "legacy"
 
+/**
+ * Render strategy for cone (sector) shapes. Mirrors
+ * `ConeStrategyKind` in `crates/rf-layout/src/application/cone_strategy.rs`.
+ *
+ * - `convexWedge`: cones display as solid wedges when the pack
+ *   polygon is also the convex hull.
+ * - `annularSector`: cones display as the real annular crescent
+ *   (high-fidelity render of what the operator will cut).
+ *
+ * Absent -> Rust default (`annularSector`).
+ */
+export type ConeStrategy = "convexWedge" | "annularSector"
+
+/**
+ * Collision polygon for cone (sector) shapes. Mirrors
+ * `ConePackingMode` in `crates/rf-layout/src/application/cone_strategy.rs`.
+ *
+ * - `convexHull`: conservative default; jagua collides against the
+ *   convex hull and may expose it as `Placement.packPolygon`.
+ * - `annularSector`: opt-in precise mode; jagua collides against the
+ *   real concave annular sector so cones can nest into concavities.
+ */
+export type ConePackingMode = "convexHull" | "annularSector"
+
+/**
+ * Post-pack scrap-extraction pipeline. Mirrors `ScrapStrategyKind`
+ * in `crates/rf-layout/src/application/scrap_strategy.rs`.
+ *
+ * - `legacy`: pre-fix behaviour — bin-level Clipper diff plus
+ *   inscribed-rect classification only. A/B / rollback path.
+ * - `twoSignal`: Free Roam parity — adds per-part
+ *   `bbox(polygon) − polygon` shape-trapped crescents on top of the
+ *   bin-level diff. Cones, ellipses, ngons, triangles, stars, and
+ *   rings render their corner waste explicitly.
+ *
+ * Absent → Rust default (`twoSignal`).
+ */
+export type ScrapStrategy = "legacy" | "twoSignal"
+
+/**
+ * Algorithm the active scrap pipeline uses to inscribe reusable
+ * rectangles in the bin's free space. Mirrors
+ * `OffcutExtractionStrategyKind` in
+ * `crates/rf-layout/src/application/offcut_extraction_strategy.rs`.
+ *
+ * - `greedyMaxRect`: current production behaviour — iterative greedy
+ *   maximal-inscribed-rect extraction with no merge or backtrack
+ *   pass. Future variants (post-loop pairwise merge, stripe partition,
+ *   all-maximal-rect enumeration) are tracked in repo issue #14.
+ *
+ * Absent → Rust default (`greedyMaxRect`).
+ */
+export type OffcutExtractionStrategy = "greedyMaxRect"
+
 export interface PackRequest {
   bins: Bin[]
   clearance: number
@@ -76,6 +146,10 @@ export interface PackRequest {
   improvementBudgetMs?: number | null
   seed?: number | null
   units?: UnitSystem
+  coneStrategy?: ConeStrategy
+  conePackingMode?: ConePackingMode
+  scrapStrategy?: ScrapStrategy
+  offcutExtractionStrategy?: OffcutExtractionStrategy
 }
 
 export interface Placement {
@@ -89,6 +163,43 @@ export interface Placement {
   width: number
   height: number
   difficulty?: number | null
+  /**
+   * Echo of the source `Part.tag` for this `shapeId`. The Rust
+   * `application::strategy::run_with_tag_echo` post-processor stamps
+   * every produced placement with the source tag. Untagged parts
+   * yield untagged placements (`undefined`).
+   */
+  tag?: string | null
+  /**
+   * Transformed pack polygon — the surface jagua actually collided
+   * on. Populated only when it differs from `polygon` (today: the
+   * cone convex-hull overlay in default packing). The visualizer
+   * paints this as a translucent overlay so operators can see jagua's
+   * "mental model" of the shape. Undefined for shapes where pack
+   * polygon == render polygon, including annular-sector cone packing.
+   */
+  packPolygon?: Point2D[]
+}
+
+/**
+ * Whether an offcut rectangle meets the reusable-stock thresholds.
+ * Mirrors `rf_layout::domain::result::OffcutKind`.
+ */
+export type OffcutKind = "reusable" | "scrap"
+
+/**
+ * One axis-aligned offcut rectangle extracted from a `BinResult`'s
+ * `freeRegions` polygons via the Rust inscribed-rect algorithm,
+ * classified against the reusable-stock thresholds. AutoNest paints
+ * `reusable` in amber and `scrap` in red.
+ */
+export interface ClassifiedOffcut {
+  binId: string
+  x: number
+  y: number
+  width: number
+  height: number
+  kind: OffcutKind
 }
 
 export interface BinResult {
@@ -101,6 +212,21 @@ export interface BinResult {
   efficiency: number
   // Invariant: scrapRatio == 1.0 - efficiency (within f64 epsilon).
   scrapRatio: number
+  /**
+   * Boolean-difference output: bin polygon minus the union of placed
+   * polygons in this bin. CCW-wound, in bin-local coords. AutoNest
+   * paints these as scrap polygons for irregular waste regions
+   * (cone/trapezoid mixes). Each polygon is a `Point2D[]` — the Rust
+   * `Polygon` type serializes transparently as a flat array of
+   * `{x, y}`. May be empty when the post-pack extractor hasn't run.
+   */
+  freeRegions: Point2D[][]
+  /**
+   * Axis-aligned reusable/scrap rectangles inscribed inside
+   * `freeRegions`. May be empty when the post-pack extractor hasn't
+   * run.
+   */
+  offcuts: ClassifiedOffcut[]
 }
 
 export interface PackResult {

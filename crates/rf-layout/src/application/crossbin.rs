@@ -1,12 +1,12 @@
 // engine/crates/rf-layout/src/application/crossbin.rs
 //
-// Phase 3 follow-up — Codex's Option E: cross-bin move-out.
+// Phase 3 follow-up â€” Codex's Option E: cross-bin move-out.
 //
 // After the sequential LBF+LNS+polish pipeline produces a multi-bin
 // layout, this operator tries to reduce the Fab `Nesting` component
 // by moving ONE item at a time between bins. Nesting = totalUsed /
 // totalOccupiedArea; the only way to improve it at fixed totalUsed
-// is to reduce `totalOccupiedArea` = Σ(bin.width × occupied_height).
+// is to reduce `totalOccupiedArea` = Î£(bin.width Ã— occupied_height).
 //
 // The move-out idea: if roll-1 has an item protruding at its top
 // (i.e., removing it drops roll-1's occupied_height), AND that item
@@ -20,11 +20,13 @@
 //
 // On the production 37-part fixture this operator may be a no-op
 // because the items that CAN reduce roll-1's max_y don't fit into
-// roll-2 without bumping roll-2's max_y more. We still ship it —
+// roll-2 without bumping roll-2's max_y more. We still ship it â€”
 // (a) other fixtures may benefit, (b) it's a clean safety net that
 // never regresses (we accept moves only on strict improvement).
 
-use crate::application::polish::{polish_placements, PolishConfig};
+use crate::application::polish::{
+    placements_have_pack_surface_overlap, polish_placements, PolishConfig,
+};
 use crate::domain::{Bin, PackResult, Placement};
 use rf_geom::domain::Point2D;
 use std::collections::HashMap;
@@ -33,13 +35,13 @@ use std::collections::HashMap;
 /// Keeps us from churning on near-ties.
 const MIN_IMPROVEMENT_SQIN: f64 = 1.0;
 
-/// Try to move one item between bins to reduce Σ(bin.width ×
+/// Try to move one item between bins to reduce Î£(bin.width Ã—
 /// occupied_height). Iterates up to `max_iterations` times; each
 /// iteration applies the single best single-item move across all
 /// (src, dst) pairs, or stops if no improvement is available.
 ///
 /// Preserves placement count, bin assignment count, and the Placement
-/// pool itself — only bin_id and polygon positions change for the
+/// pool itself â€” only bin_id and polygon positions change for the
 /// moved item. Runs polish on affected bins after each move so the
 /// target bin compacts the newly-added item against its existing
 /// layout.
@@ -132,7 +134,7 @@ fn find_best_move(
     best
 }
 
-/// Compute the hypothetical Σ(bin.width × occ_height) if we moved
+/// Compute the hypothetical Î£(bin.width Ã— occ_height) if we moved
 /// `placement_idx` from its current bin to `dst_bin_idx` and re-
 /// polished both bins. Returns `None` if the move is infeasible
 /// (item bbox doesn't fit inside dst_bin's raw dimensions).
@@ -190,6 +192,11 @@ fn simulate_move_occupied(
     let src_bin = &bins[src_bin_idx];
     src_placements = polish_placements(&src_placements, src_bin.width, src_bin.height, polish_cfg);
     dst_placements = polish_placements(&dst_placements, dst_bin.width, dst_bin.height, polish_cfg);
+    if placements_have_pack_surface_overlap(&src_placements)
+        || placements_have_pack_surface_overlap(&dst_placements)
+    {
+        return None;
+    }
 
     // Compute new total occupied area across all bins. For untouched
     // bins, reuse the baseline occ_height (no change).
@@ -200,7 +207,7 @@ fn simulate_move_occupied(
         } else if bi == dst_bin_idx {
             max_y_of(&dst_placements)
         } else {
-            // Other bin — pull its existing occupied height from result.
+            // Other bin â€” pull its existing occupied height from result.
             result
                 .per_bin
                 .iter()
@@ -220,6 +227,7 @@ fn apply_move(
     candidate: &MoveCandidate,
     polish_cfg: &PolishConfig,
 ) -> PackResult {
+    let original = result.clone();
     let dst_id = bins[candidate.dst_bin_idx].bin_id.clone();
     let src_id = bins[candidate.src_bin_idx].bin_id.clone();
 
@@ -251,8 +259,14 @@ fn apply_move(
     let dst_polished =
         polish_placements(&dst_placements, dst_bin.width, dst_bin.height, polish_cfg);
 
-    // Rebuild the placements list (order doesn't matter — consumers
+    // Rebuild the placements list (order doesn't matter â€” consumers
     // identify placements by bin_id and shape_id).
+    if placements_have_pack_surface_overlap(&src_polished)
+        || placements_have_pack_surface_overlap(&dst_polished)
+    {
+        return original;
+    }
+
     result.placements = src_polished
         .into_iter()
         .chain(dst_polished)
@@ -352,11 +366,17 @@ fn relocate_placement(src: &Placement, new_bin_id: &str, tx: f64, ty: f64) -> Pl
         .iter()
         .map(|v| Point2D::new(v.x + dx, v.y + dy))
         .collect::<Vec<_>>();
+    let pack_polygon = src.pack_polygon.as_ref().map(|poly| {
+        poly.iter()
+            .map(|v| Point2D::new(v.x + dx, v.y + dy))
+            .collect::<Vec<_>>()
+    });
     Placement {
         bin_id: new_bin_id.to_string(),
         x: src.x + dx,
         y: src.y + dy,
         polygon,
+        pack_polygon,
         ..src.clone()
     }
 }
@@ -417,6 +437,8 @@ mod tests {
             width: w,
             height: h,
             difficulty: None,
+            tag: None,
+            pack_polygon: None,
         }
     }
 
@@ -443,6 +465,8 @@ mod tests {
                 0.0
             },
             scrap_ratio: 1.0 - (used / (used + waste)).max(0.0),
+            free_regions: Vec::new(),
+            offcuts: Vec::new(),
         }
     }
 
@@ -494,14 +518,14 @@ mod tests {
         let bins = vec![test_bin("A", 100.0, 100.0), test_bin("B", 100.0, 100.0)];
         let out = try_cross_bin_moveout(result, &bins, 0.0, 3);
 
-        // SOMETHING moved from A to B — don't care which specific item
+        // SOMETHING moved from A to B â€” don't care which specific item
         // (the operator is free to pick any shape whose move reduces
         // total occupied area; in this fixture several items are
         // equally beneficial once polish is applied).
         let b_count = out.placements.iter().filter(|p| p.bin_id == "B").count();
         assert!(b_count >= 1, "at least one item should have moved to bin B");
 
-        // Bin A occupied height should drop substantially from 100 —
+        // Bin A occupied height should drop substantially from 100 â€”
         // in this fixture polish compacts the remaining items so A ends
         // up well under 50 regardless of which single item was moved.
         let a_occ = out
@@ -518,10 +542,29 @@ mod tests {
     }
 
     #[test]
+    fn relocate_placement_keeps_pack_polygon_aligned() {
+        let mut p = rect_placement("cone", "A", 20.0, 30.0, 10.0, 10.0);
+        p.pack_polygon = Some(vec![
+            Point2D::new(20.0, 30.0),
+            Point2D::new(32.0, 30.0),
+            Point2D::new(32.0, 42.0),
+            Point2D::new(20.0, 42.0),
+        ]);
+
+        let moved = relocate_placement(&p, "B", 5.0, 7.0);
+
+        assert_eq!(moved.bin_id, "B");
+        assert_eq!(moved.polygon[0], Point2D::new(5.0, 7.0));
+        let hull = moved.pack_polygon.expect("test placement has pack hull");
+        assert_eq!(hull[0], Point2D::new(5.0, 7.0));
+        assert_eq!(hull[2], Point2D::new(17.0, 19.0));
+    }
+
+    #[test]
     fn rejects_move_that_worsens_total() {
         // Two bins evenly balanced. Moving any item from either bin
         // to the other would either leave total occupied unchanged
-        // or make it worse — the operator must pass everything
+        // or make it worse â€” the operator must pass everything
         // through unchanged.
         let placements = vec![
             rect_placement("a", "A", 0.0, 0.0, 50.0, 50.0),

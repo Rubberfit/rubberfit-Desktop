@@ -1,6 +1,6 @@
 // engine/crates/rf-layout/tests/sparrow_repack_bench.rs
 //
-// Sparrow fixed-bin repack spike bench — production 37-part fixture.
+// Sparrow fixed-bin repack spike bench â€” production 37-part fixture.
 //
 // Marked `#[ignore]` because it spends meaningful time (up to ~3s per
 // variant) and exists to measure, not to assert a stable outcome. Run
@@ -10,7 +10,7 @@
 //     --test sparrow_repack_bench -- --ignored --nocapture
 //
 // Fixture data mirrors tools/bench-production/revised_sizes_rev1.csv
-// (29 unique parts, 37 total copies, 78×396 stock) so the numbers are
+// (29 unique parts, 37 total copies, 78Ã—396 stock) so the numbers are
 // directly comparable to the legacy/Rust side-by-side bench that the
 // session's baseline captured.
 
@@ -20,9 +20,9 @@ use rf_layout::infrastructure::search::{fixed_bin_sparrow_repack, FixedBinRepack
 use rf_layout::infrastructure::warm_start::{greedy_bottom_left, PackerStrategy};
 use std::time::{Duration, Instant};
 
-/// Quantity, shape_id, length (in), width (in) — row-for-row from
+/// Quantity, shape_id, length (in), width (in) â€” row-for-row from
 /// revised_sizes_rev1.csv. "Width" here is the narrow dim; "Length" is
-/// the long one. The production bin is 78" wide × 396" long.
+/// the long one. The production bin is 78" wide Ã— 396" long.
 const FIXTURE: &[(u32, &str, f64, f64)] = &[
     (3, "G1", 120.75, 35.5),
     (1, "G2", 96.75, 35.5),
@@ -75,17 +75,18 @@ fn production_items() -> Vec<Part> {
         .map(|(qty, id, length, width)| Part {
             shape_id: (*id).into(),
             quantity: *qty,
-            // CSV "Width" ≤ bin.width (78"), "Length" runs up the long axis.
-            polygon: vec![
+            // CSV "Width" â‰¤ bin.width (78"), "Length" runs up the long axis.
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(*width, 0.0),
                 Point2D::new(*width, *length),
                 Point2D::new(0.0, *length),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         })
         .collect()
 }
@@ -116,7 +117,7 @@ fn sparrow_repack_vs_bssf_on_production_fixture() {
     );
 
     // --- Sparrow repack across a few starting Ns. 2026-04-19 result:
-    // every variant returns the BSSF baseline of 13 placements — the
+    // every variant returns the BSSF baseline of 13 placements â€” the
     // mechanism cannot lift density on this fixture. See
     // .claude/research/sparrow-integration/spike-result.md for the
     // architectural root cause. Kept as a regression surface; a future

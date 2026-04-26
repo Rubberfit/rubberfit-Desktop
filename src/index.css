@@ -160,6 +160,24 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  /*
+   * Desktop shell: lock the document to the viewport so scrolling
+   * only happens inside the React tree (managed by <main> and Konva).
+   * Without this, body/#root grow with their child's h-screen and
+   * the webview shows its own scrollbars on top of the in-app ones,
+   * with empty body background visible past the layout. On Windows
+   * the document vertical scrollbar also makes 100vw > content area,
+   * which is why a horizontal scrollbar appeared at smaller window
+   * sizes.
+   */
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
 }
 
 html {

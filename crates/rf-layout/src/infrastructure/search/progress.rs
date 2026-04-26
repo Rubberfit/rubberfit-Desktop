@@ -3,7 +3,7 @@
 // Task 14: progress streaming primitives.
 //
 // Codex-locked shape:
-//   - Schema uses `best_active_stock_density` (NOT overall_density) —
+//   - Schema uses `best_active_stock_density` (NOT overall_density) â€”
 //     the latter is invariant after FFD and produces dead-frame streams.
 //   - Filter lives in optimize_multi, NOT SolutionListener. SolutionListener
 //     only receives &LayoutSnapshot, which lacks global state.
@@ -45,7 +45,7 @@ pub struct PackProgress {
 
 /// Monotonic filter + callback wrapper. Owned by `optimize_multi`.
 ///
-/// Codex sign-off §4: permanent-disable flag is load-bearing. After
+/// Codex sign-off Â§4: permanent-disable flag is load-bearing. After
 /// the first callback panic, `callbacks_disabled=true` and every
 /// future emit is a silent no-op.
 pub struct ProgressEmitter {
@@ -111,7 +111,7 @@ impl ProgressEmitter {
             let cb = cb.clone();
             let result = catch_unwind(AssertUnwindSafe(|| cb(frame.clone())));
             if result.is_err() {
-                // First panic — disable all future emits for this run.
+                // First panic â€” disable all future emits for this run.
                 // Don't repeatedly pay the catch_unwind + callback cost
                 // on a poisoned user callback.
                 self.callbacks_disabled = true;
@@ -159,7 +159,7 @@ fn compute_progress_stats(assignment: &FfdAssignment, bins: &[Bin], items: &[Par
     let mut area_by_shape: std::collections::HashMap<&str, f64> =
         std::collections::HashMap::with_capacity(items.len());
     for p in items {
-        area_by_shape.insert(p.shape_id.as_str(), polygon_area(&p.polygon));
+        area_by_shape.insert(p.shape_id.as_str(), polygon_area(p.polygon_slice()));
     }
 
     let mut total_placed: u32 = 0;
@@ -211,16 +211,17 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
@@ -284,7 +285,7 @@ mod tests {
 
         let mut emitter = ProgressEmitter::new(Some(cb), Instant::now());
         emitter.emit_baseline(&assn, &bins, &items, "explore");
-        // Same assignment offered again — filter should drop.
+        // Same assignment offered again â€” filter should drop.
         emitter.offer(&assn, &bins, &items, "explore");
         emitter.offer(&assn, &bins, &items, "explore");
 

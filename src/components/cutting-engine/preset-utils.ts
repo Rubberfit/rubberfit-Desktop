@@ -1,4 +1,4 @@
-import type { SimplePartType } from "./NestingVisualizer"
+import type { SimplePartType } from "./nesting-visualizer-types"
 import type { CustomPartDrafts, PartTemplate, SupportedPartType } from "./preset-template-data"
 import { Shapes, Triangle } from "lucide-react"
 

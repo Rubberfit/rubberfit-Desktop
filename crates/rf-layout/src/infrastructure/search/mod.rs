@@ -16,20 +16,20 @@
 //      `clearance: f64` so this layer can rebuild `BPInstance`
 //      without breaking the `optimize(seed, cfg)` signature locked
 //      in Task 1.
-//   4. `improvement_budget_ms` reserved for Task 14 — not wired yet.
+//   4. `improvement_budget_ms` reserved for Task 14 â€” not wired yet.
 //      Listener is `NoopListener`; Terminator is timeout-only
 //      (`BasicTerminator::with_timeout`). Progress streaming +
 //      cooperative cancellation arrive in Task 14 by swapping those
-//      two impls — no signature changes required.
+//      two impls â€” no signature changes required.
 //   5. Polygon reconstruction uses
 //      `jagua_rs::io::export::int_to_ext_transformation` composed
 //      with the original `Part.polygon`. Do NOT serialize jagua's
-//      internal `PlacedItem.shape` — it carries a centring
+//      internal `PlacedItem.shape` â€” it carries a centring
 //      pre-transform and may be clearance-inflated (see
-//      Codex sign-off §3 of the Task 8 plan).
+//      Codex sign-off Â§3 of the Task 8 plan).
 //   6. Placement iteration sorted by `(item_id, tx, ty, rot)` before
 //      renumbering so `instance_index` is deterministic under fixed
-//      seed — jagua's `SlotMap` iteration order is not stable.
+//      seed â€” jagua's `SlotMap` iteration order is not stable.
 
 pub mod assignment;
 pub mod cancel;
@@ -74,7 +74,7 @@ pub struct OptimizerConfig {
     /// Total wall-clock budget for the search.
     pub time_budget_ms: u64,
     /// Stop early if no improvement for N ms. `None` = rely on
-    /// `time_budget_ms` only. Currently unused — wired in Task 14.
+    /// `time_budget_ms` only. Currently unused â€” wired in Task 14.
     pub improvement_budget_ms: Option<u64>,
     /// Seed for reproducibility. `None` = entropy-backed via `SysRng`.
     pub seed: Option<u64>,
@@ -120,7 +120,7 @@ pub fn optimize(seed: SeedResult, config: OptimizerConfig) -> Result<SeedResult,
     let mut sep = Separator::new(instance, layout, rng, SeparatorConfig::exploration());
 
     // 4. Arm a `CompositeTerminator` (deadline + cancel). 100% explore
-    //    budget — compression is identity per Task 7. If
+    //    budget â€” compression is identity per Task 7. If
     //    `config.cancel_token` is None, behaves exactly like
     //    `BasicTerminator` alone (Task 9 parity preserved).
     let deadline = BasicTerminator::with_timeout(Duration::from_millis(config.time_budget_ms));
@@ -159,7 +159,7 @@ pub fn optimize(seed: SeedResult, config: OptimizerConfig) -> Result<SeedResult,
 // the axis-aligned MaxRects heuristics can reach.
 //
 // Codex + Gemini dual sign-off at `.claude/handoff/sparrow-spike-plan.md`.
-// Standalone entry point — NOT wired into `consolidate_tail_bin`'s receiver
+// Standalone entry point â€” NOT wired into `consolidate_tail_bin`'s receiver
 // portfolio yet (parity risk staging). Bench first, wire later.
 //
 // Commit-1 scope: shrink-only outer loop with the naive "drop smallest"
@@ -171,14 +171,14 @@ pub fn optimize(seed: SeedResult, config: OptimizerConfig) -> Result<SeedResult,
 pub struct FixedBinRepackConfig {
     /// Hard wall-clock budget across all inner attempts.
     pub total_budget_ms: u64,
-    /// Minimum ms per inner `exploration_phase` call — prevents degenerate
+    /// Minimum ms per inner `exploration_phase` call â€” prevents degenerate
     /// short attempts on the tail end of the budget.
     pub min_attempt_budget_ms: u64,
-    /// Starting forced-item count. `None` → `min(30, total_copies)`. Clamped
+    /// Starting forced-item count. `None` â†’ `min(30, total_copies)`. Clamped
     /// to `bssf_placed + 1` on the low end so we never attempt a packing
     /// the BSSF baseline already achieves.
     pub start_count: Option<usize>,
-    /// Optional seed. `None` → entropy-backed via `SysRng`.
+    /// Optional seed. `None` â†’ entropy-backed via `SysRng`.
     pub seed: Option<u64>,
 }
 
@@ -203,7 +203,7 @@ const FIXED_BIN_REPACK_DEFAULT_START: usize = 30;
 /// overlaps) and lets `exploration_phase` resolve collisions. On infeasible
 /// outcome, shrinks the item count by one and retries until a feasible
 /// layout is found, the budget expires, or the count falls to the BSSF
-/// baseline. Always returns at least the BSSF baseline — never worse than
+/// baseline. Always returns at least the BSSF baseline â€” never worse than
 /// today's packer.
 pub fn fixed_bin_sparrow_repack(
     bin: &Bin,
@@ -232,7 +232,7 @@ pub fn fixed_bin_sparrow_repack(
 
     // Stable copy order: sort by (area desc, shape_id asc), flatten
     // respecting per-part quantity. Area desc means tail entries are the
-    // SMALLEST — "drop smallest" is just `take_n -= 1`.
+    // SMALLEST â€” "drop smallest" is just `take_n -= 1`.
     let copy_order = build_copy_order(items)?;
     debug_assert_eq!(
         copy_order.len(),
@@ -286,7 +286,7 @@ pub fn fixed_bin_sparrow_repack(
                 break;
             }
             RepackOutcome::Infeasible => {
-                // "Drop smallest" — copy_order is area-desc, so shrinking by
+                // "Drop smallest" â€” copy_order is area-desc, so shrinking by
                 // 1 removes the smallest current copy. Smart drop (max-loss
                 // item from CT rebuild) lands in Commit 2 if Commit 1 stalls.
                 current_n -= 1;
@@ -309,7 +309,7 @@ enum RepackOutcome {
 fn build_copy_order(items: &[Part]) -> Result<Vec<(usize, u32)>, PackError> {
     let mut shape_meta: Vec<(usize, f64, &str)> = Vec::with_capacity(items.len());
     for (idx, part) in items.iter().enumerate() {
-        let bbox = rf_geom::application::bbox_of(&part.polygon).map_err(|source| {
+        let bbox = rf_geom::application::bbox_of(part.polygon_slice()).map_err(|source| {
             PackError::InvalidPolygon {
                 shape_id: part.shape_id.clone(),
                 source,
@@ -340,7 +340,7 @@ fn build_copy_order(items: &[Part]) -> Result<Vec<(usize, u32)>, PackError> {
 ///   1. Run BSSF to get up to `bssf_placed` feasible placements.
 ///   2. If `take_n > bssf_placed`, pick extra copies from `copy_order`
 ///      that are NOT already in the BSSF base and stack them at
-///      `(x=0, y=bin.height - cumulative_height)` — the top-of-bin,
+///      `(x=0, y=bin.height - cumulative_height)` â€” the top-of-bin,
 ///      which is the region BSSF most commonly leaves empty. These
 ///      extras overlap each other and any BSSF items near the top,
 ///      giving the separator a concentrated collision region to
@@ -427,7 +427,7 @@ fn build_overlap_seed(
         }
 
         let part = &items[shape_idx];
-        let bbox = rf_geom::application::bbox_of(&part.polygon).map_err(|source| {
+        let bbox = rf_geom::application::bbox_of(part.polygon_slice()).map_err(|source| {
             PackError::InvalidPolygon {
                 shape_id: part.shape_id.clone(),
                 source,
@@ -451,7 +451,7 @@ fn build_overlap_seed(
             y,
             rotation_rad: 0.0,
             polygon: part
-                .polygon
+                .polygon_slice()
                 .iter()
                 .map(|p| Point2D::new(p.x - bbox.0.x + x, p.y - bbox.0.y + y))
                 .collect(),
@@ -463,7 +463,7 @@ fn build_overlap_seed(
 
         // Advance the cursor by the smaller of `h` or a fraction of
         // bin.height to prevent a single tall part from pushing the
-        // extras band off the bin. `h * 0.3` keeps extras compact —
+        // extras band off the bin. `h * 0.3` keeps extras compact â€”
         // empirically the separator untangles small overlaps much
         // faster than large ones.
         cursor_from_top += h * 0.3;
@@ -499,7 +499,7 @@ fn build_subset_items(items: &[Part], count_per_shape: &[u32]) -> Vec<Part> {
 /// `Feasible` with the materialized `SeedResult` or `Infeasible` when the
 /// budget expires before collisions resolve. Inlines the same pipeline
 /// shape as `optimize` but inspects the raw `ExplorationOutcome` so
-/// infeasible attempts can be distinguished from feasible ones — the
+/// infeasible attempts can be distinguished from feasible ones â€” the
 /// regular `optimize` path would conflate them.
 fn run_repack_attempt(
     bin: &Bin,
@@ -548,16 +548,16 @@ fn run_repack_attempt(
 ///
 /// Each `SeedPlacement` becomes a `layout.place_item(item, dt)` call.
 /// Uses an explicit `HashMap<shape_id, item_id>` keyed off
-/// `config.items` — do NOT rely on positional matching between
+/// `config.items` â€” do NOT rely on positional matching between
 /// `SeedPlacement.shape_id` and `BPInstance.items` order (Codex
-/// sign-off §3.3 fix).
+/// sign-off Â§3.3 fix).
 fn replay_seed_into_layout(
     layout: &mut Layout,
     instance: &BPInstance,
     items: &[Part],
     seed: &SeedResult,
 ) -> Result<(), PackError> {
-    // Per Codex plan sign-off §3.3: `HashMap<String, usize>` exactly.
+    // Per Codex plan sign-off Â§3.3: `HashMap<String, usize>` exactly.
     // Owned keys are cheap here (items is typically < 100 entries) and
     // sidestep any future borrow concerns if `items` lifetime changes.
     let mut shape_to_item_id: HashMap<String, usize> = HashMap::with_capacity(items.len());
@@ -567,7 +567,7 @@ fn replay_seed_into_layout(
             .is_some()
         {
             return Err(PackError::EngineFailed(format!(
-                "duplicate shape_id '{}' in items — refusing to replay seed",
+                "duplicate shape_id '{}' in items â€” refusing to replay seed",
                 part.shape_id
             )));
         }
@@ -584,7 +584,7 @@ fn replay_seed_into_layout(
 
         // Codex Task-9 fix: SeedPlacement stores EXTERNAL coordinates
         // (warm_start.rs applies the user-supplied polygon directly).
-        // jagua's `Layout::place_item` expects INTERNAL coordinates —
+        // jagua's `Layout::place_item` expects INTERNAL coordinates â€”
         // jagua applies a centring `pre_transform` to every item during
         // import (`io::import::centering_transformation`). We must
         // compose the inverse via `ext_to_int_transformation` before
@@ -637,7 +637,7 @@ fn snapshot_to_seed(
 
         let part = &items[pi.item_id];
         let polygon: Vec<Point2D> = part
-            .polygon
+            .polygon_slice()
             .iter()
             .map(|p| apply_dtransformation_to_point(&abs_transf, *p))
             .collect();
@@ -707,16 +707,17 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: 1,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(side, 0.0),
                 Point2D::new(side, side),
                 Point2D::new(0.0, side),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
@@ -730,7 +731,7 @@ mod tests {
         }
     }
 
-    /// Build a seed with two 10x10 squares at given offsets — overlap
+    /// Build a seed with two 10x10 squares at given offsets â€” overlap
     /// if offsets are close.
     fn two_square_seed(offsets: &[(f32, f32)]) -> (Bin, Vec<Part>, SeedResult) {
         let bin = big_bin();
@@ -781,7 +782,7 @@ mod tests {
 
     #[test]
     fn resolves_colliding_warm_start_seed() {
-        // Two 10x10 squares seeded at (10,10) and (15,15) — 50% overlap.
+        // Two 10x10 squares seeded at (10,10) and (15,15) â€” 50% overlap.
         // Real GLS must resolve to a non-overlapping layout while
         // preserving cardinality (2 placements, 0 overflow).
         let (bin, items, seed) = two_square_seed(&[(10.0, 10.0), (15.0, 15.0)]);
@@ -811,7 +812,7 @@ mod tests {
         // The BasicTerminator only gets polled at the TOP of the outer
         // strike loop (separator.rs:256). One strike runs up to
         // iter_no_imprv_limit (200) iterations of move_items_multi
-        // (3 workers × sampling) before the next kill() check. So a
+        // (3 workers Ã— sampling) before the next kill() check. So a
         // 50ms budget can legitimately run 10s before returning.
         // This is known and documented in Task 14 as "cancel latency
         // tightening."
@@ -874,7 +875,7 @@ mod tests {
         // 10s ceiling. BasicTerminator.kill() is only polled at the top
         // of the outer strike loop (separator.rs:256). A single strike
         // can run up to `iter_no_imprv_limit` (200) iterations of
-        // move_items_multi × 3 workers × sampling before the next
+        // move_items_multi Ã— 3 workers Ã— sampling before the next
         // kill() check. On an unresolvable 2-item fixture the paper
         // defaults + cold JIT can legitimately need ~8s worst-case.
         // A 10s firing here would flag: infinite loop, terminator never
@@ -890,13 +891,13 @@ mod tests {
         // Warm-start produced an empty layout (no placements fit); GLS
         // cannot create room on an empty layout. Overflow on output is
         // recomputed from scratch as `total_requested - placed_in_layout`
-        // — note this IGNORES the incoming `seed.overflow` field; the
+        // â€” note this IGNORES the incoming `seed.overflow` field; the
         // canonical source of truth is `config.items[].quantity`.
         let bin = big_bin();
         let parts = vec![square_part("a", 10.0)];
         let seed = SeedResult {
             placements: vec![],
-            overflow: 0, // irrelevant — optimize recomputes from items
+            overflow: 0, // irrelevant â€” optimize recomputes from items
         };
         let out = optimize(seed, cfg_from(bin, parts, 500)).unwrap();
         assert_eq!(
@@ -951,7 +952,7 @@ mod tests {
         //
         // So for a 10x10 square whose original centroid is (5, 5)
         // relative to its min-corner (0, 0), the external polygon
-        // has min-corner (5, 15) and max-corner (15, 25) — centroid
+        // has min-corner (5, 15) and max-corner (15, 25) â€” centroid
         // (10, 20).
         let bin = big_bin();
         let parts = vec![square_part("a", 10.0)];
@@ -998,30 +999,31 @@ mod tests {
         let (cx, cy) = (cx / n, cy / n);
         assert!(
             (cx - 10.0).abs() < 0.5 && (cy - 20.0).abs() < 0.5,
-            "external polygon centroid should be near (10, 20) — suggests \
+            "external polygon centroid should be near (10, 20) â€” suggests \
              pre_transform wasn't composed via int_to_ext_transformation; \
              got ({cx}, {cy})"
         );
     }
 
     // -----------------------------------------------------------------
-    // fixed_bin_sparrow_repack — Commit 1 tests
+    // fixed_bin_sparrow_repack â€” Commit 1 tests
     // -----------------------------------------------------------------
 
     fn rect_part_q(id: &str, side: f64, qty: u32) -> Part {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(side, 0.0),
                 Point2D::new(side, side),
                 Point2D::new(0.0, side),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
@@ -1047,7 +1049,7 @@ mod tests {
 
     #[test]
     fn fixed_bin_repack_never_worse_than_bssf_baseline() {
-        // 4 small squares in a bin that only fits 3 — sparrow should place
+        // 4 small squares in a bin that only fits 3 â€” sparrow should place
         // at least the BSSF baseline's count (3) and never fewer.
         let bin = Bin {
             bin_id: "b".into(),
@@ -1065,7 +1067,7 @@ mod tests {
         };
         let out = fixed_bin_sparrow_repack(&bin, &items, 0.0, config).unwrap();
 
-        // BSSF grid packer fits 9 (3×3 of 10×10 in 30×30). Our spike must
+        // BSSF grid packer fits 9 (3Ã—3 of 10Ã—10 in 30Ã—30). Our spike must
         // return at least that many. Feasibility contract: never worse.
         assert!(
             out.placements.len() >= 3,
@@ -1080,10 +1082,10 @@ mod tests {
 
     #[test]
     fn fixed_bin_repack_beats_overlap_start() {
-        // 5 10×10 squares force-packed into a 22×22 bin. Bin has area for
-        // 4 (actually fits exactly 4 non-overlapping in a 2×2 grid at 0/11
+        // 5 10Ã—10 squares force-packed into a 22Ã—22 bin. Bin has area for
+        // 4 (actually fits exactly 4 non-overlapping in a 2Ã—2 grid at 0/11
         // with 1" gaps). Overlap seed will force all 5 in with overlaps.
-        // Sparrow's shrink loop should step from 5 → 4 and find the
+        // Sparrow's shrink loop should step from 5 â†’ 4 and find the
         // feasible 4-square layout.
         let bin = Bin {
             bin_id: "b".into(),
@@ -1101,12 +1103,12 @@ mod tests {
         };
         let out = fixed_bin_sparrow_repack(&bin, &items, 0.0, config).unwrap();
 
-        // Baseline grid packer fits floor(22/10) × floor(22/10) = 2×2 = 4.
+        // Baseline grid packer fits floor(22/10) Ã— floor(22/10) = 2Ã—2 = 4.
         // Spike must match or beat that. 5 is geometrically infeasible in
-        // 22×22 without rotation, so 4 is the ceiling.
+        // 22Ã—22 without rotation, so 4 is the ceiling.
         assert!(
             out.placements.len() >= 4,
-            "expected ≥ 4 placements after sparrow repack, got {}",
+            "expected â‰¥ 4 placements after sparrow repack, got {}",
             out.placements.len()
         );
         assert!(
@@ -1154,7 +1156,7 @@ mod tests {
 
     #[test]
     fn fixed_bin_repack_respects_budget() {
-        // Adversarial fixture — too many large squares. Test that the call
+        // Adversarial fixture â€” too many large squares. Test that the call
         // returns within a reasonable multiple of the budget (not infinite).
         let bin = Bin {
             bin_id: "b".into(),
@@ -1177,7 +1179,7 @@ mod tests {
 
         // BasicTerminator polling is outer-loop only (separator.rs:256), so
         // exploration_phase can legitimately overshoot a short budget. Ceiling
-        // chosen to be 20× the requested budget — catches infinite loops
+        // chosen to be 20Ã— the requested budget â€” catches infinite loops
         // and genuine perf regressions while allowing paper-default
         // strike/iter costs to complete a tail iteration.
         assert!(
@@ -1192,7 +1194,7 @@ mod tests {
 
     #[test]
     fn fixed_bin_repack_no_shrink_when_bssf_already_fits_all() {
-        // BSSF fits all 4 — sparrow should just return BSSF's result
+        // BSSF fits all 4 â€” sparrow should just return BSSF's result
         // without wasting budget on GLS.
         let bin = Bin {
             bin_id: "b".into(),

@@ -1,7 +1,7 @@
 // engine/crates/rf-layout/tests/orchestrator_integration.rs
 //
-// Task 12 integration tests — optimize_multi wired through pack()
-// exercises the full FFD → operators → per-bin GLS pipeline.
+// Task 12 integration tests â€” optimize_multi wired through pack()
+// exercises the full FFD â†’ operators â†’ per-bin GLS pipeline.
 
 use rf_geom::domain::Point2D;
 use rf_layout::application::pack::pack;
@@ -11,16 +11,17 @@ fn rect_part(id: &str, qty: u32, w: f64, h: f64) -> Part {
     Part {
         shape_id: id.into(),
         quantity: qty,
-        polygon: vec![
+        polygon: Some(vec![
             Point2D::new(0.0, 0.0),
             Point2D::new(w, 0.0),
             Point2D::new(w, h),
             Point2D::new(0.0, h),
-        ],
+        ]),
         shape_spec: None,
         allow_rotation: false,
         grain_axis: None,
         difficulty: None,
+        tag: None,
     }
 }
 
@@ -46,6 +47,10 @@ fn small_multi_bin_request() -> PackRequest {
         improvement_budget_ms: None,
         seed: Some(42),
         units: UnitSystem::default(),
+        cone_strategy: None,
+        cone_packing_mode: None,
+        scrap_strategy: None,
+        offcut_extraction_strategy: None,
     }
 }
 
@@ -94,6 +99,10 @@ fn pack_multi_bin_large_fixture() {
         improvement_budget_ms: None,
         seed: Some(42),
         units: UnitSystem::default(),
+        cone_strategy: None,
+        cone_packing_mode: None,
+        scrap_strategy: None,
+        offcut_extraction_strategy: None,
     };
     let total_requested: u32 = req.items.iter().map(|p| p.quantity).sum();
     let result = pack(req).expect("pack should succeed on large multi-bin fixture");
@@ -108,7 +117,7 @@ fn pack_multi_bin_large_fixture() {
 #[test]
 fn pack_single_bin_parity_holds() {
     // Single-bin fast path must produce results equivalent to
-    // Task 9's passing gls_integration tests — bin size + item set
+    // Task 9's passing gls_integration tests â€” bin size + item set
     // matches `three_rects_stack` fixture.
     let req = PackRequest {
         bins: vec![bin("b", 48.0, 96.0)],
@@ -121,6 +130,10 @@ fn pack_single_bin_parity_holds() {
         improvement_budget_ms: None,
         seed: Some(42),
         units: UnitSystem::default(),
+        cone_strategy: None,
+        cone_packing_mode: None,
+        scrap_strategy: None,
+        offcut_extraction_strategy: None,
     };
     let result = pack(req).expect("pack should succeed on single-bin fixture");
     assert_eq!(result.placed_count, 3, "all 3 items should fit");

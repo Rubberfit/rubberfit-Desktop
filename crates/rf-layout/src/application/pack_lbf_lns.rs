@@ -1,6 +1,6 @@
 // engine/crates/rf-layout/src/application/pack_lbf_lns.rs
 //
-// Phase 2 — density-changing LNS on top of LBF.
+// Phase 2 â€” density-changing LNS on top of LBF.
 //
 // LBF gets us to 32/37 on the production fixture by doing pure constructive
 // placement (one-shot, no backtracking). The last 1-5 items remain
@@ -14,7 +14,7 @@
 // (creating controlled overlap) and let the separator rearrange to
 // absorb it.
 //
-// pack_lbf_lns = pack_lbf → for each bin, try to grow the bin one item
+// pack_lbf_lns = pack_lbf â†’ for each bin, try to grow the bin one item
 // at a time, running the GLS separator on each attempted growth. Accept
 // feasible growths, revert infeasible ones. Stop when no more items fit
 // or the budget runs out.
@@ -76,7 +76,7 @@ impl Default for PackLbfLnsConfig {
 /// For multi-bin requests, processes bins SEQUENTIALLY: runs LBF + LNS
 /// on bin #1 with the full item set (concentrating placement), routes
 /// overflow to bin #2, and so on. This mirrors legacy's concentration
-/// behavior — previously-uniform distribution (pack_lbf's natural
+/// behavior â€” previously-uniform distribution (pack_lbf's natural
 /// multi-bin output) gave away Fab Score by leaving more scrap on the
 /// earlier bins. Single-bin requests go straight through.
 pub fn pack_lbf_lns(request: PackRequest) -> Result<PackResult, PackError> {
@@ -84,9 +84,10 @@ pub fn pack_lbf_lns(request: PackRequest) -> Result<PackResult, PackError> {
 }
 
 pub fn pack_lbf_lns_with_config(
-    request: PackRequest,
+    mut request: PackRequest,
     cfg: PackLbfLnsConfig,
 ) -> Result<PackResult, PackError> {
+    crate::application::shape_builder::materialise_request_polygons(&mut request)?;
     if request.bins.len() <= 1 {
         return pack_lbf_lns_single_bin(request, cfg);
     }
@@ -111,7 +112,7 @@ pub fn pack_lbf_lns_with_config(
             .collect();
 
         if sub_items.is_empty() {
-            // No items left — emit an empty BinResult for this bin so
+            // No items left â€” emit an empty BinResult for this bin so
             // per_bin.len() stays aligned with request.bins.
             per_bin.push(BinResult {
                 bin_id: bin.bin_id.clone(),
@@ -121,6 +122,8 @@ pub fn pack_lbf_lns_with_config(
                 occupied_height: bin.height,
                 efficiency: 0.0,
                 scrap_ratio: 1.0,
+                free_regions: Vec::new(),
+                offcuts: Vec::new(),
             });
             continue;
         }
@@ -136,11 +139,15 @@ pub fn pack_lbf_lns_with_config(
             improvement_budget_ms: request.improvement_budget_ms,
             seed: request.seed,
             units: request.units,
+            cone_strategy: request.cone_strategy,
+            cone_packing_mode: request.cone_packing_mode,
+            scrap_strategy: request.scrap_strategy,
+            offcut_extraction_strategy: request.offcut_extraction_strategy,
         };
 
         let sub_result = pack_lbf_lns_single_bin(sub_request, cfg.clone())?;
 
-        // Extract this bin's per_bin row (must exist — single-bin result
+        // Extract this bin's per_bin row (must exist â€” single-bin result
         // always has exactly one BinResult).
         let sub_bin_result = sub_result
             .per_bin
@@ -190,7 +197,7 @@ pub fn pack_lbf_lns_with_config(
         was_cancelled: false,
     };
 
-    // Phase 3 follow-up — cross-bin move-out. Tries to reduce Σ(occ×w)
+    // Phase 3 follow-up â€” cross-bin move-out. Tries to reduce Î£(occÃ—w)
     // across bins by moving a protruding item from one bin to another.
     // Only accepts moves that strictly improve total occupied area.
     // Gated by `REMA_DISABLE_CROSSBIN=true` for benches / debugging;
@@ -240,13 +247,13 @@ fn pack_lbf_lns_single_bin(
     // that are missing (part of overflow) and attempt to force them
     // into the bin with the GLS separator resolving collisions.
     //
-    // Bins are processed in their request order — typically the first
+    // Bins are processed in their request order â€” typically the first
     // bin has the most free space because LBF greedily opens layouts
     // in order.
 
-    // Global counter of placements so far per shape — used to decide
+    // Global counter of placements so far per shape â€” used to decide
     // which copies remain to be placed. Matches PackResult semantics
-    // (quantity = total demand, placements per shape ≤ quantity).
+    // (quantity = total demand, placements per shape â‰¤ quantity).
     let mut placed_by_shape: HashMap<String, u32> = HashMap::new();
     for p in &lbf_result.placements {
         *placed_by_shape.entry(p.shape_id.clone()).or_insert(0) += 1;
@@ -291,7 +298,7 @@ fn pack_lbf_lns_single_bin(
         })
         .map(|(idx, _)| idx);
 
-    // No bin has placements → fall back to LBF result.
+    // No bin has placements â†’ fall back to LBF result.
     let Some(target_bin_idx) = target_bin_idx else {
         let mut r = lbf_result;
         r.run_time_ms = Some(started_at.elapsed().as_millis() as u64);
@@ -300,7 +307,7 @@ fn pack_lbf_lns_single_bin(
 
     let target_bin = &request.bins[target_bin_idx];
 
-    // Build a single-bin BPInstance for the grow-separate loop — the
+    // Build a single-bin BPInstance for the grow-separate loop â€” the
     // separator operates on one layout at a time.
     let single_bin_instance = to_jagua_instance(
         std::slice::from_ref(target_bin),
@@ -347,7 +354,7 @@ fn pack_lbf_lns_single_bin(
     let mut growth_ops = 0usize;
     let mut attempts_made = 0usize;
 
-    // For each unplaced copy of each shape (area-desc order — try
+    // For each unplaced copy of each shape (area-desc order â€” try
     // hardest to place items first so the separator has the most
     // meaningful rearrangement work to do).
     let mut order: Vec<usize> = remaining_copies.iter().map(|(id, _)| *id).collect();
@@ -397,11 +404,14 @@ fn pack_lbf_lns_single_bin(
             }
 
             // If we've hit the wall-clock budget from the original
-            // request, stop growing.
-            if let Some(budget_ms) = request.time_budget_ms {
-                if started_at.elapsed() >= Duration::from_millis(budget_ms) {
-                    break 'outer;
-                }
+            // request, stop growing. `resolved_time_budget_ms` honours
+            // both an explicit `time_budget_ms` AND the mode-based
+            // fallback (Fast=2s, Balanced=10s, Thorough=30s) — reading
+            // the raw field alone would skip the deadline whenever the
+            // caller specified a mode without an explicit ms.
+            let budget_ms = request.resolved_time_budget_ms();
+            if started_at.elapsed() >= Duration::from_millis(budget_ms) {
+                break 'outer;
             }
         }
     }
@@ -421,7 +431,7 @@ fn pack_lbf_lns_single_bin(
         },
     )?;
 
-    // Phase 3 — score-aware polish. Slides each bin's placements toward
+    // Phase 3 â€” score-aware polish. Slides each bin's placements toward
     // (0, 0) so waste aggregates into one corner reusable rectangle.
     // On by default; set `REMA_DISABLE_POLISH=true` to skip. See
     // application/polish.rs and
@@ -480,6 +490,8 @@ fn polish_pack_result(mut result: PackResult, bins: &[Bin], clearance: f64) -> P
                 occupied_height: bin.height,
                 efficiency: 0.0,
                 scrap_ratio: 1.0,
+                free_regions: Vec::new(),
+                offcuts: Vec::new(),
             });
             continue;
         }
@@ -488,7 +500,9 @@ fn polish_pack_result(mut result: PackResult, bins: &[Bin], clearance: f64) -> P
         let polished = polish_placements(&bin_placements, bin.width, bin.height, &cfg);
         let post_score = polish_score(&polished, bin.width, bin.height);
 
-        let selected = if post_score.is_better_than(&pre_score) {
+        let selected = if post_score.is_better_than(&pre_score)
+            && !crate::application::polish::placements_have_pack_surface_overlap(&polished)
+        {
             polished
         } else {
             bin_placements
@@ -530,6 +544,8 @@ fn polish_pack_result(mut result: PackResult, bins: &[Bin], clearance: f64) -> P
             },
             efficiency,
             scrap_ratio: 1.0 - efficiency,
+            free_regions: Vec::new(),
+            offcuts: Vec::new(),
         });
 
         polished_all.extend(selected);
@@ -577,7 +593,7 @@ fn attempt_grow(
     }
 
     // Sample a random placement for the new item within the bin's
-    // bbox. We use a quick random sample — LBF-style local search
+    // bbox. We use a quick random sample â€” LBF-style local search
     // would be more precise but the separator's disrupt mechanism
     // is what ultimately makes this work, so the starting position
     // matters less than one might think.
@@ -666,17 +682,46 @@ fn rebuild_pack_result(
         )
     });
 
+    let cone_strategy = crate::application::cone_strategy::cone_strategy_for(
+        request.cone_strategy.unwrap_or_default(),
+    );
+    let cone_packing_mode = request.cone_packing_mode.unwrap_or_default();
+
     for pi in entries {
         let item = instance.item(pi.item_id);
         let pre_transf = &item.shape_orig.pre_transform;
         let abs_transf = int_to_ext_transformation(&pi.d_transf, pre_transf);
 
         let part = &request.items[pi.item_id];
-        let polygon: Vec<Point2D> = part
-            .polygon
+        let pack_polygon: Vec<Point2D> = part
+            .polygon_slice()
             .iter()
             .map(|p| apply_dtransformation_to_point(&abs_transf, *p))
             .collect();
+
+        // See pack_lbf::snapshot_to_placements for the equivalent
+        // dispatch logic and the rationale comment about transform
+        // identity between pack and render polygons.
+        let (polygon, placement_pack_polygon) =
+            match crate::application::cone_strategy::cone_dims_from_part(part) {
+                Some(_)
+                    if cone_packing_mode
+                        == crate::application::cone_strategy::ConePackingMode::AnnularSector =>
+                {
+                    (pack_polygon, None)
+                }
+                Some(d) => match cone_strategy.render_polygon_local(d) {
+                    Some(local) => {
+                        let render: Vec<Point2D> = local
+                            .iter()
+                            .map(|p| apply_dtransformation_to_point(&abs_transf, *p))
+                            .collect();
+                        (render, Some(pack_polygon))
+                    }
+                    None => (pack_polygon, None),
+                },
+                None => (pack_polygon, None),
+            };
 
         let (min_x, min_y, max_x, max_y) = polygon.iter().fold(
             (
@@ -699,6 +744,8 @@ fn rebuild_pack_result(
             width: (max_x - min_x).max(0.0),
             height: (max_y - min_y).max(0.0),
             difficulty: None,
+            tag: None,
+            pack_polygon: placement_pack_polygon,
         });
     }
 
@@ -759,6 +806,8 @@ fn rebuild_pack_result(
             },
             efficiency,
             scrap_ratio: 1.0 - efficiency,
+            free_regions: Vec::new(),
+            offcuts: Vec::new(),
         });
     }
 
@@ -839,16 +888,17 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: true,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
@@ -874,6 +924,10 @@ mod tests {
             improvement_budget_ms: None,
             seed: Some(42),
             units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
         }
     }
 
@@ -891,7 +945,7 @@ mod tests {
 
     #[test]
     fn matches_lbf_when_everything_fits() {
-        // LBF already fits all 3 → no growth work to do. LNS must not
+        // LBF already fits all 3 â†’ no growth work to do. LNS must not
         // regress.
         let req = simple_request(
             vec![bin("b1", 48.0, 96.0)],

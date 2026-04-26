@@ -1,6 +1,35 @@
 // engine/crates/rf-layout/src/domain/result.rs
-use rf_geom::domain::Point2D;
+use rf_geom::domain::{Point2D, Polygon};
 use serde::{Deserialize, Serialize};
+
+/// Whether an offcut rectangle meets the reusable-stock thresholds
+/// (TypeScript free-space.ts compatibility) or is treated as scrap.
+/// The thresholds and classification rules live in
+/// `application::offcut_classifier`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum OffcutKind {
+    /// Large enough (in either orientation) to be re-stocked as a
+    /// remnant. Rendered amber in the AutoNest visualizer.
+    Reusable,
+    /// Below all reusable thresholds. Rendered red as waste.
+    Scrap,
+}
+
+/// One axis-aligned offcut rectangle extracted from a `BinResult`'s
+/// free-space polygons via `largest_inscribed_rect` and classified
+/// against reusable-stock thresholds. AutoNest renders these as the
+/// amber/red overlays on top of placed cuts.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassifiedOffcut {
+    pub bin_id: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub kind: OffcutKind,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -16,6 +45,22 @@ pub struct Placement {
     pub height: f64,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub difficulty: Option<f64>,
+    /// Echo of the source `Part.tag`. The packing pipeline does not
+    /// produce this value; it is stamped post-pack from the request
+    /// (see `application::strategy::run_with_tag_echo`) so a tag
+    /// carries through the boundary without leaking into search,
+    /// jagua-rs, or any geometric primitive.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tag: Option<String>,
+    /// Transformed pack polygon — the surface jagua actually
+    /// collided on. Populated only when it differs from `polygon`
+    /// (today: the cone convex-hull overlay in default packing). The
+    /// visualizer can paint this as a translucent overlay so operators
+    /// can see jagua's "mental model" of the shape. None for every
+    /// shape where pack polygon == render polygon, including
+    /// annular-sector cone packing.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pack_polygon: Option<Vec<Point2D>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -36,6 +81,19 @@ pub struct BinResult {
     /// Feeds downstream UI waste reporting (S5).
     #[serde(default)]
     pub scrap_ratio: f64,
+    /// Boolean-difference output: bin polygon minus the union of all
+    /// placed-part polygons in this bin. CCW-wound, in bin-local
+    /// coordinates. AutoNest paints these as scrap polygons for
+    /// irregular waste regions (cone/trapezoid mixes). Empty when
+    /// the post-pack free-space extractor hasn't run (e.g. older
+    /// callers that bypassed `application::strategy`).
+    #[serde(default)]
+    pub free_regions: Vec<Polygon>,
+    /// Axis-aligned reusable/scrap rectangles inscribed inside the
+    /// `free_regions`. AutoNest paints reusable in amber and scrap
+    /// in red. Empty when the post-pack extractor hasn't run.
+    #[serde(default)]
+    pub offcuts: Vec<ClassifiedOffcut>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -80,6 +138,8 @@ mod tests {
             occupied_height: 5.0,
             efficiency: 1.0,
             scrap_ratio: 0.0,
+            free_regions: Vec::new(),
+            offcuts: Vec::new(),
         };
         let json = serde_json::to_string(&br).unwrap();
         assert!(json.contains("\"binId\":"));
@@ -104,6 +164,8 @@ mod tests {
             width: 1.0,
             height: 1.0,
             difficulty: None,
+            tag: None,
+            pack_polygon: None,
         };
         let json = serde_json::to_string(&p).unwrap();
         assert!(json.contains("\"rotationRad\":0.0"));

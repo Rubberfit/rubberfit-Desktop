@@ -2,7 +2,7 @@
 //
 // First-Fit-Decreasing bin-assignment heuristic.
 //
-// Fresh code — not a sparrow port. Replaces pack.rs's prior "iterate
+// Fresh code â€” not a sparrow port. Replaces pack.rs's prior "iterate
 // bins in input order with per-bin greedy spillover" with a global
 // assignment pass that routes each item to the first bin (in priority
 // order) where it still fits alongside previously assigned items.
@@ -13,14 +13,14 @@
 //      FFD primary; the rest ensure determinism across ties.
 //   2. Bin order: priority desc (None == 0, matching TS
 //      buildPackRequest.ts:32-34), Remnant-before-Fresh, input order.
-//   3. Clearance is pass-through — fit-checking delegates to
+//   3. Clearance is pass-through â€” fit-checking delegates to
 //      warm_start::greedy_bottom_left, which calls the jagua adapter
 //      with the same clearance. No precomputed bbox inflation.
 //   4. Per-bin config.items MUST NOT contain duplicate shape_id rows
 //      (replay_seed_into_layout at mod.rs:144 errors on duplicates).
 //      When FFD assigns N copies of the same shape to the same bin,
 //      quantities are collapsed into a single Part.
-//   5. Cardinality preservation: FFD must seed every copy it routes —
+//   5. Cardinality preservation: FFD must seed every copy it routes â€”
 //      search::optimize cannot recover missing seeds.
 //   6. Deterministic HashMap materialization: all map -> vec steps
 //      sort by shape_id to avoid non-deterministic instance_index
@@ -57,7 +57,7 @@ pub fn ffd_assign(
     // the sort key once per shape (bbox area + longest edge).
     let mut shape_bbox: HashMap<&str, (f64, f64)> = HashMap::with_capacity(items.len());
     for part in items {
-        let bbox = rf_geom::application::bbox_of(&part.polygon).map_err(|source| {
+        let bbox = rf_geom::application::bbox_of(part.polygon_slice()).map_err(|source| {
             PackError::InvalidPolygon {
                 shape_id: part.shape_id.clone(),
                 source,
@@ -195,7 +195,7 @@ fn build_trial_items(
 
 /// Collapse `counts` into a deduped `Vec<Part>` with `quantity` set
 /// per the counts map. Preserves all non-quantity Part fields from the
-/// originals. Sorted by `shape_id` for deterministic emission (§3.6
+/// originals. Sorted by `shape_id` for deterministic emission (Â§3.6
 /// Codex sign-off fix).
 pub(crate) fn materialize_parts(
     counts: &HashMap<String, u32>,
@@ -225,6 +225,7 @@ pub(crate) fn materialize_parts(
                 allow_rotation: template.allow_rotation,
                 grain_axis: template.grain_axis,
                 difficulty: template.difficulty,
+                tag: template.tag.clone(),
             })
         })
         .collect()
@@ -243,16 +244,17 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: false,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
@@ -269,7 +271,7 @@ mod tests {
     #[test]
     fn ffd_beats_naive_on_area_decreasing_case() {
         // Scenario per Codex research: 20x20, 10x10, 10x5 on bins
-        // 20x20 (A) and 20x15 (B). Input order: small, small, big —
+        // 20x20 (A) and 20x15 (B). Input order: small, small, big â€”
         // naive would place the two small rects on A, then the big
         // rect finds nowhere (doesn't fit A's leftover, doesn't fit
         // B because B is 15 tall vs 20 required). FFD sorts big first,

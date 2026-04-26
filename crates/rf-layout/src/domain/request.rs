@@ -51,7 +51,15 @@ pub struct Part {
     pub shape_id: String,
     #[serde(alias = "demand")]
     pub quantity: u32,
-    pub polygon: Vec<Point2D>,
+    /// Pre-built polygon vertices in part-local coords (CCW, normalized
+    /// so minX = minY = 0). Optional — when absent, the pack pipeline
+    /// materialises the polygon from `shape_spec` via
+    /// `application::shape_builder::materialise_polygon`. Auto-nest
+    /// spec-able shapes (rect, circle, trapezoid, ngon, sector) are
+    /// constructed Rust-side from `shape_spec`; this field is now
+    /// reserved for DXF imports / raw-geometry callers.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub polygon: Option<Vec<Point2D>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shape_spec: Option<ShapeSpec>,
     pub allow_rotation: bool,
@@ -59,6 +67,15 @@ pub struct Part {
     pub grain_axis: Option<GrainAxis>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub difficulty: Option<f64>,
+    /// Caller-owned opaque label echoed verbatim onto every
+    /// `Placement` produced for this shape. Rubberfit-Desktop's
+    /// AutoNest UI uses it to tag placements with a part number
+    /// ("G2") or a generated letter ("A", "B", "C…"). Rust never
+    /// inspects, mutates, or generates the value — it is held by
+    /// reference and round-tripped to keep the TypeScript layer in
+    /// sole ownership of the labelling scheme.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tag: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -113,11 +130,55 @@ pub struct PackRequest {
     pub seed: Option<u64>,
     #[serde(default)]
     pub units: UnitSystem,
+    /// Strategy for cone (sector) polygon shape. None defaults to
+    /// `ConeStrategyKind::AnnularSector` (high-fidelity render). Lets
+    /// the caller A/B `convexWedge` vs `annularSector` without
+    /// rebuilding — see `application::cone_strategy`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub cone_strategy: Option<crate::application::cone_strategy::ConeStrategyKind>,
+    /// Collision polygon for cone (sector) shapes. None defaults to
+    /// `ConePackingMode::AnnularSector` so jagua collides on the
+    /// actual cone outline and cones may nest into each other's
+    /// concavities. Set `ConvexHull` to opt into the conservative
+    /// hull-based packing.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub cone_packing_mode: Option<crate::application::cone_strategy::ConePackingMode>,
+    /// Which scrap-extraction pipeline runs post-pack. None defaults
+    /// to `ScrapStrategyKind::TwoSignal` (Free Roam parity — emits
+    /// per-part bbox-minus-polygon shape-trapped crescents in
+    /// addition to the bin-level diff). Set `Legacy` for A/B
+    /// comparison or rollback. See `application::scrap_strategy`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub scrap_strategy: Option<crate::application::scrap_strategy::ScrapStrategyKind>,
+    /// Which offcut-extraction algorithm the active scrap pipeline
+    /// uses to inscribe reusable rectangles in the bin's free space.
+    /// None defaults to `OffcutExtractionStrategyKind::GreedyMaxRect`
+    /// (current production behaviour: iterative greedy
+    /// maximal-inscribed-rect, no merge or backtrack). Future variants
+    /// (post-loop pairwise merge, stripe partition, all-maximal-rect
+    /// enumeration) tracked in issue #14. See
+    /// `application::offcut_extraction_strategy`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub offcut_extraction_strategy:
+        Option<crate::application::offcut_extraction_strategy::OffcutExtractionStrategyKind>,
 }
 
 pub const FAST_MS: u64 = 2_000;
 pub const BALANCED_MS: u64 = 10_000;
 pub const THOROUGH_MS: u64 = 30_000;
+
+impl Part {
+    /// Borrow the materialised polygon. Panics if the polygon is
+    /// `None`. Pack pipelines call
+    /// `application::shape_builder::materialise_request_polygons` at
+    /// entry, after which every part is guaranteed to have a polygon
+    /// — so downstream search/jagua code is free to assume it.
+    pub fn polygon_slice(&self) -> &[Point2D] {
+        self.polygon.as_deref().expect(
+            "Part.polygon was None — orchestrator must call materialise_request_polygons before passing parts to search/jagua code",
+        )
+    }
+}
 
 impl PackRequest {
     pub fn resolved_time_budget_ms(&self) -> u64 {
@@ -151,7 +212,7 @@ mod tests {
         assert_eq!(req.bins[0].bin_id, "b1");
         assert_eq!(req.items.len(), 1);
         assert_eq!(req.items[0].shape_id, "rect-a");
-        assert_eq!(req.items[0].polygon.len(), 4);
+        assert_eq!(req.items[0].polygon.as_ref().map(|p| p.len()), Some(4));
         assert_eq!(req.mode, Some(PackMode::Fast));
         assert_eq!(req.units, UnitSystem::Inch); // default
     }

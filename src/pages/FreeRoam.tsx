@@ -67,7 +67,7 @@ export function FreeRoamPage() {
   const [stock, setStock] = useState<StockConfig>(DEFAULT_STOCK)
 
   return (
-    <PageShell variant="dense">
+    <PageShell variant="workspace">
       <PageHeader
         title="Free roam · Beta"
         subtitle="Manually author a layout — drag parts onto the sheet, snap to grid, rotate, commit as a cut. Same reusable-offcut (amber) and waste (red) semantics as Auto nest."

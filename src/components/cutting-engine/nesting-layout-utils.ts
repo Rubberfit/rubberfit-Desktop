@@ -254,29 +254,3 @@ export {
   centerPlacements,
   buildOffcutBands,
 } from "./nesting-offcut-utils"
-
-// Re-export packing utilities from their new module
-export {
-  sortPreviewItems,
-  packPreviewItemsOnShelves,
-  packPreviewItemsInCenteredColumn,
-  packRectItemsWithGuillotine,
-  calculatePackedShapeLayout,
-} from "./nesting-packing-utils"
-
-// Re-export rect/circle layout utilities from their new module
-export {
-  buildRectLayoutCandidate,
-  calculateSimpleRectLayout,
-  _calculateSimpleCircleLayout,
-  calculateDirectCircleProfileLayout,
-} from "./nesting-rect-layout"
-
-// Re-export step builders from their new module
-export {
-  buildRectangleSteps,
-  buildCircleSteps,
-  buildCylinderSteps,
-  buildConeSteps,
-  buildTrapezoidSteps,
-} from "./nesting-step-builders"

@@ -4,7 +4,7 @@ use rf_geom::domain::Point2D;
 
 /// Greedy bottom-left seeding: for each item, stack vertically starting at y=0.
 /// Simple but produces a valid starting layout for sparrow's LNS.
-/// This is the S2 MVP packer — sparrow integration lands in S2.5.
+/// This is the S2 MVP packer â€” sparrow integration lands in S2.5.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SeedPlacement {
     pub shape_id: String,
@@ -46,11 +46,11 @@ pub struct SeedResult {
 /// This is CONSERVATIVE vs jagua's exact `min_item_separation = c`
 /// semantics (real stack of k copies needs `k*h + (k+1)*c`; we
 /// reserve `k*h + 2*k*c`). The probe over-rejects by `(k-1)*c` on
-/// deep stacks — acceptable for an assignment-time oracle; downstream
+/// deep stacks â€” acceptable for an assignment-time oracle; downstream
 /// CDE in jagua handles exact clearance during placement.
 ///
 /// See `docs/superpowers/plans/2026-04-18-s2.5-task11-cross-bin-swap.md`
-/// §2 for the derivation + Codex sign-off at
+/// Â§2 for the derivation + Codex sign-off at
 /// `.claude/research/task11/codex-signoff.md`.
 pub fn greedy_bottom_left(
     bin: &Bin,
@@ -59,17 +59,17 @@ pub fn greedy_bottom_left(
 ) -> Result<SeedResult, PackError> {
     // Task 19a/19c/19d dispatcher:
     //   - Homogeneous single-shape inputs: 2D grid packer (Task 19a).
-    //   - Heterogeneous inputs: `bin-packing` MaxRects BSSF (Task 19d) —
+    //   - Heterogeneous inputs: `bin-packing` MaxRects BSSF (Task 19d) â€”
     //     replaces Task 19c's `rectangle-pack` which hit a single-bin
     //     ceiling at 12/37 parts on the production diagnostic. BSSF
-    //     (Jylänki 2010) preserves larger reusable offcuts by biasing
+    //     (JylÃ¤nki 2010) preserves larger reusable offcuts by biasing
     //     placement toward corner-tight fits, which closed the
     //     legacy-vs-Rust Fab Score gap on the single-bin bench
     //     (Rust 71 vs legacy 57).
     //   - Pathological inputs: vertical-stacker fallback keeps overflow
     //     accounting deterministic if the primary packer errors.
     //
-    // Rotation: disabled (can_rotate=false on every demand) — matches
+    // Rotation: disabled (can_rotate=false on every demand) â€” matches
     // the rectangle-pack integration's effective behavior. Enabling
     // rotation requires validating jagua_adapter polygon + rotation_rad
     // round-trip, deferred to a follow-up.
@@ -90,23 +90,23 @@ pub fn greedy_bottom_left(
 /// Task 19d: heterogeneous 2D packer backed by `bin-packing` v0.3.0.
 ///
 /// Replaces Task 19c's `rectangle-pack` integration, which fit only 12/37
-/// parts on a 78×396 single-bin production diagnostic. `bin-packing`'s
+/// parts on a 78Ã—396 single-bin production diagnostic. `bin-packing`'s
 /// `Auto` strategy runs MaxRects (4 variants), Skyline (2), Guillotine
 /// BSSF + shorter-leftover-axis, BFDH, Multistart, and RotationSearch in
 /// one sweep and returns the best result ranked lexicographically on
-/// `(unplaced, sheet_count, total_waste_area, total_cost, max_usable_drop_area↑, total_sum_sq_usable_drop_areas↑)`.
+/// `(unplaced, sheet_count, total_waste_area, total_cost, max_usable_drop_areaâ†‘, total_sum_sq_usable_drop_areasâ†‘)`.
 /// The two consolidation tiebreakers directly reward reusable-offcut
 /// preservation, which is REMA's top business metric.
 ///
-/// Scales f64 coordinates to u32 via a fixed 10000x factor (1e4 — keeps
-/// 78×396 inputs well within u32::MAX while preserving 0.0001" precision).
+/// Scales f64 coordinates to u32 via a fixed 10000x factor (1e4 â€” keeps
+/// 78Ã—396 inputs well within u32::MAX while preserving 0.0001" precision).
 /// SCALE is pinned across Task 19c/19d; changing it would invalidate
 /// parity snapshots.
 ///
 /// Rotation: disabled for v1 (`can_rotate = false` on every demand). The
 /// prior rectangle-pack integration was also effectively no-rotation.
 /// Rotation requires a polygon-rotation pass on the SeedPlacement output
-/// — deferred until we have rotation-aware downstream tests.
+/// â€” deferred until we have rotation-aware downstream tests.
 ///
 /// Determinism: honors a fixed seed so `Multistart` + `RotationSearch`
 /// produce bit-identical output. Seed is derived from a stable hash of
@@ -122,20 +122,20 @@ fn greedy_rectangle_pack(
 
 /// Task 19d/Tier 6 strategy seam: per-bin packer family selector.
 ///
-/// `Bssf` is the default used by the warm-start dispatcher (Jylänki BSSF —
+/// `Bssf` is the default used by the warm-start dispatcher (JylÃ¤nki BSSF â€”
 /// biased toward corner-tight fits + large leftover rectangles, see
 /// `greedy_rectangle_pack` docs). Tier 6's `consolidate_tail_bin`
 /// operator uses `BottomLeft` as a secondary repack strategy because
-/// it's directly biased toward lower occupied height — exactly what
+/// it's directly biased toward lower occupied height â€” exactly what
 /// tail preservation wants on the receiver bin.
 #[derive(Clone, Copy, Debug)]
 pub enum PackerStrategy {
-    /// MaxRects BSSF — default warm-start + FFD probe.
+    /// MaxRects BSSF â€” default warm-start + FFD probe.
     Bssf,
-    /// MaxRects bottom-left — prefers low occupied height.
+    /// MaxRects bottom-left â€” prefers low occupied height.
     BottomLeft,
-    /// Auto + Multistart — full sweep of MaxRects variants + Skyline +
-    /// Guillotine + randomized restarts. Expensive (~10× BSSF runtime)
+    /// Auto + Multistart â€” full sweep of MaxRects variants + Skyline +
+    /// Guillotine + randomized restarts. Expensive (~10Ã— BSSF runtime)
     /// but explores layouts the single heuristics miss. Reserved for
     /// Tier 6 tail-preservation receiver repack where the extra cost
     /// is worth one-shot-per-move.
@@ -145,7 +145,7 @@ pub enum PackerStrategy {
 /// Strategy-parameterized variant of `greedy_rectangle_pack`. Tier 6
 /// operators call this with alternate strategies when repacking a
 /// receiver bin from scratch. Keeping `greedy_rectangle_pack` as a thin
-/// wrapper preserves the Task 19d dispatcher contract unchanged — FFD
+/// wrapper preserves the Task 19d dispatcher contract unchanged â€” FFD
 /// + GLS + existing cross-bin operators never observe the new param.
 pub fn greedy_rectangle_pack_with_strategy(
     bin: &Bin,
@@ -185,7 +185,7 @@ pub fn greedy_rectangle_pack_with_strategy(
     let mut rejected_overflow: u32 = 0;
 
     for part in items {
-        let bbox = rf_geom::application::bbox_of(&part.polygon).map_err(|source| {
+        let bbox = rf_geom::application::bbox_of(part.polygon_slice()).map_err(|source| {
             PackError::InvalidPolygon {
                 shape_id: part.shape_id.clone(),
                 source,
@@ -197,7 +197,7 @@ pub fn greedy_rectangle_pack_with_strategy(
         let h_eff = h + 2.0 * clearance;
 
         // Width/height gate: parts whose (w+2c,h+2c) exceeds the bin are
-        // counted as overflow up-front — `solve_2d` would return
+        // counted as overflow up-front â€” `solve_2d` would return
         // `Infeasible2D` otherwise.
         if w_eff > bin.width || h_eff > bin.height {
             rejected_overflow = rejected_overflow.saturating_add(part.quantity);
@@ -213,7 +213,7 @@ pub fn greedy_rectangle_pack_with_strategy(
                 h_scaled: (h * SCALE).round() as u32,
                 quantity: part.quantity,
                 polygon_canonical: part
-                    .polygon
+                    .polygon_slice()
                     .iter()
                     .map(|p| Point2D::new(p.x - bbox.0.x, p.y - bbox.0.y))
                     .collect(),
@@ -248,7 +248,7 @@ pub fn greedy_rectangle_pack_with_strategy(
             quantity: meta.quantity as usize,
             // Rotation disabled for v1. Enabling it made the packer
             // return 11 placements instead of 12 on the production
-            // fixture — Auto's RotationSearch sampling apparently can't
+            // fixture â€” Auto's RotationSearch sampling apparently can't
             // beat no-rotation MaxRects here. Revisit once we have
             // rotation-aware downstream validation (jagua round-trip
             // via PI/2 rotation_rad was not exercised in v1).
@@ -259,7 +259,7 @@ pub fn greedy_rectangle_pack_with_strategy(
     // Deterministic seed: hash the (bin_id, sorted demands) so identical
     // problems always produce identical output across runs. This also
     // means FFD probe calls with the same partial state get the same
-    // layout — critical for the probe's fit oracle semantics.
+    // layout â€” critical for the probe's fit oracle semantics.
     let seed: u64 = {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -276,15 +276,15 @@ pub fn greedy_rectangle_pack_with_strategy(
         h.finish()
     };
 
-    // RF thresholds for reusable offcut: 11.5×12" and 6×24". Use the
+    // RF thresholds for reusable offcut: 11.5Ã—12" and 6Ã—24". Use the
     // smaller of the two (6" = 60000 scaled) as min_usable_side so that
     // narrower strips don't contribute to the consolidation tiebreakers.
     // See CLAUDE.md.
     let min_usable_side: u32 = (6.0 * SCALE).round() as u32;
 
-    // Algorithm choice: default `MaxRectsBestShortSideFit` (Jylänki 2010
-    // §3.2). BSSF places each rect in the free rectangle that leaves the
-    // smallest remainder on the SHORTER axis — biasing the layout
+    // Algorithm choice: default `MaxRectsBestShortSideFit` (JylÃ¤nki 2010
+    // Â§3.2). BSSF places each rect in the free rectangle that leaves the
+    // smallest remainder on the SHORTER axis â€” biasing the layout
     // toward filling corners tightly and preserving large, clean
     // leftover rectangles on the longer axis. This is exactly REMA's
     // reusable-offcut objective.
@@ -313,7 +313,7 @@ pub fn greedy_rectangle_pack_with_strategy(
     .map_err(|e| PackError::EngineFailed(format!("bin-packing solve_2d: {e}")))?;
 
     // Materialize placements. bin-packing's layouts are ordered by the
-    // sheet ordering we supplied — single sheet here, so layouts[0] is
+    // sheet ordering we supplied â€” single sheet here, so layouts[0] is
     // the only one (or none if solver placed nothing).
     let mut placements: Vec<SeedPlacement> = Vec::new();
     let mut per_shape_counter: std::collections::HashMap<String, u32> =
@@ -378,7 +378,7 @@ pub fn greedy_rectangle_pack_with_strategy(
     })
 }
 
-/// Vertical-stack packer — original Task 11 implementation.
+/// Vertical-stack packer â€” original Task 11 implementation.
 ///
 /// Fallback for heterogeneous bins. Stacks items at x=clearance,
 /// advancing cursor_y by h_eff = h + 2*clearance per copy. Conservative
@@ -393,7 +393,7 @@ fn greedy_vertical_stack(
     let mut cursor_y = 0.0f64;
     let mut overflow: u32 = 0;
     for part in items {
-        let bbox = rf_geom::application::bbox_of(&part.polygon).map_err(|source| {
+        let bbox = rf_geom::application::bbox_of(part.polygon_slice()).map_err(|source| {
             PackError::InvalidPolygon {
                 shape_id: part.shape_id.clone(),
                 source,
@@ -423,7 +423,7 @@ fn greedy_vertical_stack(
                 y: y_visible,
                 rotation_rad: 0.0,
                 polygon: part
-                    .polygon
+                    .polygon_slice()
                     .iter()
                     .map(|p| Point2D::new(p.x - bbox.0.x + clearance, y_visible + (p.y - bbox.0.y)))
                     .collect(),
@@ -443,19 +443,19 @@ fn greedy_vertical_stack(
 
 /// 2D bbox-grid packer for homogeneous single-shape bins.
 ///
-/// Divides the bin into `cols × rows` bbox-aligned cells of size
-/// `w_eff × h_eff = (w + 2c) × (h + 2c)`. Places copies row-major
+/// Divides the bin into `cols Ã— rows` bbox-aligned cells of size
+/// `w_eff Ã— h_eff = (w + 2c) Ã— (h + 2c)`. Places copies row-major
 /// (bottom-to-top, left-to-right) into the cells until capacity or
 /// quantity runs out.
 ///
 /// Correctness: cells are non-overlapping under the Task 11 conservative
-/// clearance model — two adjacent copies' halos meet exactly at the
+/// clearance model â€” two adjacent copies' halos meet exactly at the
 /// cell boundary, so downstream CDE collision detection will accept
 /// them.
 ///
 /// Deterministic: pure arithmetic, row-major scan, no RNG.
 fn greedy_2d_grid(bin: &Bin, part: &Part, clearance: f64) -> Result<SeedResult, PackError> {
-    let bbox = rf_geom::application::bbox_of(&part.polygon).map_err(|source| {
+    let bbox = rf_geom::application::bbox_of(part.polygon_slice()).map_err(|source| {
         PackError::InvalidPolygon {
             shape_id: part.shape_id.clone(),
             source,
@@ -496,7 +496,7 @@ fn greedy_2d_grid(bin: &Bin, part: &Part, clearance: f64) -> Result<SeedResult, 
             y: y_visible,
             rotation_rad: 0.0,
             polygon: part
-                .polygon
+                .polygon_slice()
                 .iter()
                 .map(|p| Point2D::new(p.x - bbox.0.x + x_visible, y_visible + (p.y - bbox.0.y)))
                 .collect(),
@@ -520,16 +520,17 @@ mod tests {
         Part {
             shape_id: id.into(),
             quantity: qty,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(0.0, 0.0),
                 Point2D::new(w, 0.0),
                 Point2D::new(w, h),
                 Point2D::new(0.0, h),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: true,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         }
     }
 
@@ -546,7 +547,7 @@ mod tests {
     #[test]
     fn grid_places_items_row_major_no_clearance() {
         // Task 19a: homogeneous single-part inputs now route through the
-        // 2D grid packer. 48-wide bin, 10-wide items → cols=4; items
+        // 2D grid packer. 48-wide bin, 10-wide items â†’ cols=4; items
         // 0-3 land at y=0 with x=0/10/20/30. (Row-major ordering.)
         let b = bin(48.0, 96.0);
         let items = vec![rect_part("r", 3, 10.0, 5.0)];
@@ -563,7 +564,7 @@ mod tests {
 
     #[test]
     fn grid_places_items_with_clearance_halo() {
-        // c=0.125, w=10, h=5 → cells of 10.25×5.25. cols=floor(48/10.25)=4.
+        // c=0.125, w=10, h=5 â†’ cells of 10.25Ã—5.25. cols=floor(48/10.25)=4.
         // Items 0-3 in row 0 at x={0.125, 10.375, 20.625, 30.875}, all y=0.125.
         let b = bin(48.0, 96.0);
         let items = vec![rect_part("r", 3, 10.0, 5.0)];
@@ -580,7 +581,7 @@ mod tests {
 
     #[test]
     fn grid_wraps_to_next_row_when_cols_exhausted() {
-        // 3-col bin, 7 items → row 0 fills 3, row 1 fills 3, row 2 has 1.
+        // 3-col bin, 7 items â†’ row 0 fills 3, row 1 fills 3, row 2 has 1.
         let b = bin(30.0, 30.0);
         let items = vec![rect_part("r", 7, 10.0, 10.0)];
         let result = greedy_bottom_left(&b, &items, 0.0).unwrap();
@@ -601,7 +602,7 @@ mod tests {
 
     #[test]
     fn grid_capacity_triggers_overflow() {
-        // 30×30 bin, 10× 10×10 items → grid capacity = 9, overflow = 1.
+        // 30Ã—30 bin, 10Ã— 10Ã—10 items â†’ grid capacity = 9, overflow = 1.
         let b = bin(30.0, 30.0);
         let items = vec![rect_part("r", 10, 10.0, 10.0)];
         let result = greedy_bottom_left(&b, &items, 0.0).unwrap();
@@ -612,8 +613,8 @@ mod tests {
     #[test]
     fn heterogeneous_uses_rectangle_pack() {
         // Task 19c: multi-part (heterogeneous) inputs now route through
-        // rectangle-pack for 2D packing. Two 10×5 parts on a 48×96 bin
-        // get placed without vertical stacking — rectangle-pack picks
+        // rectangle-pack for 2D packing. Two 10Ã—5 parts on a 48Ã—96 bin
+        // get placed without vertical stacking â€” rectangle-pack picks
         // positions based on its section-splitting heuristic.
         let b = bin(48.0, 96.0);
         let items = vec![rect_part("a", 1, 10.0, 5.0), rect_part("b", 1, 10.0, 5.0)];
@@ -655,16 +656,17 @@ mod tests {
         let offset_part = Part {
             shape_id: "offset".into(),
             quantity: 1,
-            polygon: vec![
+            polygon: Some(vec![
                 Point2D::new(5.0, 3.0),
                 Point2D::new(15.0, 3.0),
                 Point2D::new(15.0, 8.0),
                 Point2D::new(5.0, 8.0),
-            ],
+            ]),
             shape_spec: None,
             allow_rotation: true,
             grain_axis: None,
             difficulty: None,
+            tag: None,
         };
         // c=0 keeps min_x,min_y at 0; the clearance-inflated path is
         // tested in `stacks_items_with_clearance_halo`.
@@ -711,13 +713,13 @@ mod tests {
     #[test]
     fn clearance_applies_to_vertical_stacking() {
         // 2x 10x10 items on a 12x25 bin (width picked so w_eff=12 fits).
-        //   c=1.0 → h_eff=12, 2 copies consume 24 ≤ 25 → both fit.
+        //   c=1.0 â†’ h_eff=12, 2 copies consume 24 â‰¤ 25 â†’ both fit.
         let b1 = bin(12.0, 25.0);
         let items = vec![rect_part("r", 2, 10.0, 10.0)];
         let r1 = greedy_bottom_left(&b1, &items, 1.0).unwrap();
         assert_eq!(r1.placements.len(), 2);
         assert_eq!(r1.overflow, 0);
-        //   c=2.0 → h_eff=14, w_eff=14, bin=12 → width gate rejects all.
+        //   c=2.0 â†’ h_eff=14, w_eff=14, bin=12 â†’ width gate rejects all.
         let r2 = greedy_bottom_left(&b1, &items, 2.0).unwrap();
         assert_eq!(r2.placements.len(), 0);
         assert_eq!(r2.overflow, 2);
@@ -730,14 +732,14 @@ mod tests {
 
     #[test]
     fn clearance_applies_to_bin_boundary() {
-        // 10x5 item on 11x6 bin (width chosen so w_eff=10.6 ≤ 11).
-        //   c=0.3 → h_eff=5.6 ≤ 6 → fits.
+        // 10x5 item on 11x6 bin (width chosen so w_eff=10.6 â‰¤ 11).
+        //   c=0.3 â†’ h_eff=5.6 â‰¤ 6 â†’ fits.
         let b = bin(11.0, 6.0);
         let items = vec![rect_part("r", 1, 10.0, 5.0)];
         let r1 = greedy_bottom_left(&b, &items, 0.3).unwrap();
         assert_eq!(r1.placements.len(), 1);
         assert_eq!(r1.overflow, 0);
-        //   c=0.4 → h_eff=5.8 ≤ 6 → fits; c=0.6 → h_eff=6.2 > 6 → overflow.
+        //   c=0.4 â†’ h_eff=5.8 â‰¤ 6 â†’ fits; c=0.6 â†’ h_eff=6.2 > 6 â†’ overflow.
         let r2 = greedy_bottom_left(&b, &items, 0.6).unwrap();
         assert_eq!(r2.placements.len(), 0);
         assert_eq!(r2.overflow, 1);
@@ -758,8 +760,8 @@ mod tests {
     fn conservative_vs_exact_jagua_semantics() {
         // Codex sign-off: locks conservative over-rejection as documented.
         // Two 10x10 items, c=1, H=23, W=12 (so width gate passes).
-        //   Exact jagua (k*h + (k+1)*c): 2*10 + 3*1 = 23 → would fit.
-        //   Our uniform (k*h + 2*k*c): 2*10 + 2*2*1 = 24 > 23 → rejects 1.
+        //   Exact jagua (k*h + (k+1)*c): 2*10 + 3*1 = 23 â†’ would fit.
+        //   Our uniform (k*h + 2*k*c): 2*10 + 2*2*1 = 24 > 23 â†’ rejects 1.
         let b = bin(12.0, 23.0);
         let items = vec![rect_part("r", 2, 10.0, 10.0)];
         let r = greedy_bottom_left(&b, &items, 1.0).unwrap();

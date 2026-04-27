@@ -15,6 +15,7 @@ import type { Bin, ConePackingMode, ConeStrategy, PackRequest, Part } from "@/li
 import type { PartTemplate } from "./preset-template-data"
 import type { LayoutModel } from "./layout-model"
 import { packResultToLayoutModel } from "./pack-result-to-layout-model"
+import { promoteLargeOffcutsToSheets } from "./promote-large-offcuts"
 
 /**
  * Resolve the cone render strategy from the `?cone=` URL param.
@@ -230,7 +231,13 @@ export function usePackJob({
           const last = nonEmpty.length - 1
           nonEmpty[last] = { ...nonEmpty[last], overflowCount: result.overflowCount }
         }
-        setLayouts(nonEmpty)
+        // Promote large reusable offcuts (≥40% of sheet area) into
+        // their own synthetic sheets so the leftover stock reads as a
+        // discrete piece. Runs after overflow attachment so the
+        // job-level overflow count stays pinned to the last *real*
+        // sheet, not a promoted offcut.
+        const promoted = promoteLargeOffcutsToSheets(nonEmpty)
+        setLayouts(promoted)
         setIsPacking(false)
       } catch (err) {
         if (runIdRef.current !== runId) return

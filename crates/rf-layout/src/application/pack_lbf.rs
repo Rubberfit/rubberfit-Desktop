@@ -128,6 +128,7 @@ pub fn pack_lbf_with_config(
     // degrade into an Err.
     let mut best_solution: Option<jagua_rs::probs::bpp::entities::BPSolution> = None;
     let mut best_placed: usize = 0;
+    let mut best_bins_used: usize = usize::MAX;
     let mut best_density: f32 = 0.0;
     for (attempts_run, seed) in seeds.into_iter().enumerate() {
         // Deadline check â€” but always run the first attempt so the
@@ -142,14 +143,27 @@ pub fn pack_lbf_with_config(
             .values()
             .map(|ls| ls.placed_items.len())
             .sum();
+        // Number of bins this attempt actually used. layout_snapshots
+        // only contains layouts that received at least one item, so
+        // this is naturally "non-empty bins".
+        let bins_used = sol.layout_snapshots.len();
         let density = sol.density(&instance);
 
+        // Prefer (in order): more items placed → fewer bins used →
+        // higher density. The bins-used tiebreaker matters when the
+        // auto-fill allocator over-allocates: LBF is first-fit but
+        // probabilistic sampling can spill items into new bins they
+        // could have fit in already-open ones. Among multistart
+        // attempts that placed the same items, the consolidated layout
+        // wins.
         let is_better = best_solution.is_none()
             || placed > best_placed
-            || (placed == best_placed && density > best_density);
+            || (placed == best_placed && bins_used < best_bins_used)
+            || (placed == best_placed && bins_used == best_bins_used && density > best_density);
         if is_better {
             best_solution = Some(sol);
             best_placed = placed;
+            best_bins_used = bins_used;
             best_density = density;
         }
     }

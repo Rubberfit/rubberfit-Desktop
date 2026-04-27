@@ -92,17 +92,47 @@ pub fn pack_lbf_lns_with_config(
         return pack_lbf_lns_single_bin(request, cfg);
     }
 
-    // Sequential multi-bin: for each bin in request order, run
-    // single-bin LBF+LNS on the remaining items, collect results,
-    // decrement per-shape quantities by what was placed.
     let started_at = Instant::now();
+    let mut result = pack_into_bin_sequence(&request.bins, &request, &cfg)?;
+
+    // Phase 3 follow-up — cross-bin move-out. Tries to reduce Σ(occ×w)
+    // across bins by moving a protruding item from one bin to another.
+    // Only accepts moves that strictly improve total occupied area.
+    if std::env::var("REMA_DISABLE_CROSSBIN").as_deref() != Ok("true") {
+        result = try_cross_bin_moveout(result, &request.bins, request.clearance, 3);
+    }
+
+    // Consolidation pass: try re-packing into fewer bins. The auto-fill
+    // allocator in the frontend over-allocates by ~1.54×, and the per-
+    // bin sequential LBF can leave items spilling into later bins when
+    // probabilistic sampling misses tight-fit positions in earlier ones.
+    // Re-packing with a smaller bin slice forces LBF to find tighter
+    // layouts. Gated by REMA_DISABLE_CONSOLIDATE for debugging.
+    if std::env::var("REMA_DISABLE_CONSOLIDATE").as_deref() != Ok("true") {
+        result = consolidate_via_repack(result, &request, &cfg)?;
+    }
+
+    result.run_time_ms = Some(started_at.elapsed().as_millis() as u64);
+    Ok(result)
+}
+
+/// Multi-bin sequential LBF+LNS loop. Walks `bins` in order, running
+/// `pack_lbf_lns_single_bin` on each with the remaining item set, then
+/// decrementing per-shape quantities by what was placed. Extracted so
+/// the consolidation pass can call it with a truncated bin slice
+/// without re-running cross-bin moveout or consolidation recursively.
+fn pack_into_bin_sequence(
+    bins: &[Bin],
+    request: &PackRequest,
+    cfg: &PackLbfLnsConfig,
+) -> Result<PackResult, PackError> {
     let mut remaining_items = request.items.clone();
 
     let mut all_placements: Vec<Placement> = Vec::new();
     let mut per_bin: Vec<BinResult> = Vec::new();
     let mut index_counters: HashMap<String, u32> = HashMap::new();
 
-    for bin in &request.bins {
+    for bin in bins {
         // Build a single-bin subrequest with current remaining_items.
         // Filter to items with positive remaining quantity.
         let sub_items: Vec<_> = remaining_items
@@ -185,7 +215,7 @@ pub fn pack_lbf_lns_with_config(
         0.0
     };
 
-    let mut result = PackResult {
+    let result = PackResult {
         placements: all_placements,
         placed_count,
         overflow_count: total_overflow,
@@ -193,22 +223,57 @@ pub fn pack_lbf_lns_with_config(
         total_used_area,
         total_waste_area,
         overall_density,
-        run_time_ms: None, // finalized below
+        run_time_ms: None, // finalized in caller
         was_cancelled: false,
     };
+    Ok(result)
+}
 
-    // Phase 3 follow-up â€” cross-bin move-out. Tries to reduce Î£(occÃ—w)
-    // across bins by moving a protruding item from one bin to another.
-    // Only accepts moves that strictly improve total occupied area.
-    // Gated by `REMA_DISABLE_CROSSBIN=true` for benches / debugging;
-    // on by default since moves that don't improve are rejected
-    // internally (never regresses).
-    if std::env::var("REMA_DISABLE_CROSSBIN").as_deref() != Ok("true") {
-        result = try_cross_bin_moveout(result, &request.bins, request.clearance, 3);
+/// Iteratively re-pack into fewer bins until the result no longer fits.
+/// Caps at `MAX_CONSOLIDATE_ATTEMPTS` to bound wall time on jobs with
+/// large auto-fill over-allocations.
+fn consolidate_via_repack(
+    initial: PackResult,
+    request: &PackRequest,
+    cfg: &PackLbfLnsConfig,
+) -> Result<PackResult, PackError> {
+    const MAX_CONSOLIDATE_ATTEMPTS: usize = 5;
+
+    // Bins that actually received placements. layout_snapshots wasn't
+    // exposed here — count distinct bin_ids in placements instead.
+    let bins_used: usize = initial
+        .placements
+        .iter()
+        .map(|p| p.bin_id.as_str())
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+
+    if bins_used <= 1 || initial.overflow_count > 0 {
+        return Ok(initial);
     }
 
-    result.run_time_ms = Some(started_at.elapsed().as_millis() as u64);
-    Ok(result)
+    let mut best = initial;
+    let mut try_n = bins_used.saturating_sub(1);
+    let target_placed = best.placed_count;
+
+    for _ in 0..MAX_CONSOLIDATE_ATTEMPTS {
+        if try_n == 0 {
+            break;
+        }
+        let truncated: Vec<Bin> = request.bins.iter().take(try_n).cloned().collect();
+        match pack_into_bin_sequence(&truncated, request, cfg) {
+            Ok(r) if r.placed_count == target_placed => {
+                best = r;
+                if try_n <= 1 {
+                    break;
+                }
+                try_n -= 1;
+            }
+            _ => break,
+        }
+    }
+
+    Ok(best)
 }
 
 /// Single-bin core for `pack_lbf_lns`. Processes one bin. The multi-bin

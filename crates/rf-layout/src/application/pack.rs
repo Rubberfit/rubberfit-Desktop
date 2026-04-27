@@ -535,6 +535,107 @@ mod tests {
     }
 
     #[test]
+    fn user_fixture_consolidates_rectangles() {
+        // Mimic the user's reported scenario: ~8× 6x6 rectangles on
+        // 24x24 stock with 0.125 kerf. Auto-fill estimate would be
+        // ceil(8×36/576 × 1.54) = ceil(0.77) = 1 bin needed, but the
+        // allocator clamps to MIN_SHEETS=1. Pretend the operator
+        // demanded more parts than fit (e.g., 12) so allocator gives 2
+        // bins. Verify the outer pack_lbf_lns loop actually fills bin 1
+        // before spilling to bin 2.
+        let mut bins = Vec::with_capacity(5);
+        for i in 0..5 {
+            bins.push(bin(&format!("b{i}"), 24.0, 24.0));
+        }
+        let req = PackRequest {
+            bins,
+            clearance: 0.125,
+            // 5× 6x6 — should ALL fit in 1 bin (3x3=9 max)
+            items: vec![rect_part("rect-a", 5, 6.0, 6.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+        };
+        let result = pack(req).unwrap();
+        let bins_with_placements: std::collections::HashSet<&str> = result
+            .placements
+            .iter()
+            .map(|p| p.bin_id.as_str())
+            .collect();
+        let parts_per_bin: std::collections::HashMap<&str, u32> =
+            result
+                .placements
+                .iter()
+                .fold(Default::default(), |mut m, p| {
+                    *m.entry(p.bin_id.as_str()).or_insert(0) += 1;
+                    m
+                });
+        // 5× 6x6 in 24x24 (kerf 0.125): max 9 per bin, all 5 should
+        // consolidate to a single bin.
+        assert_eq!(
+            bins_with_placements.len(),
+            1,
+            "5× 6x6 parts should fit in 1 bin, got {} bins: {:?}",
+            bins_with_placements.len(),
+            parts_per_bin
+        );
+    }
+
+    #[test]
+    fn small_part_count_consolidates_to_fewest_bins() {
+        // 4 small parts (3×3) with the auto-fill allocator declaring 5
+        // bins of 24×24 — same shape as the multi-sheet over-allocation
+        // case. Pre-fix: LBF spreads parts across 2-5 bins because
+        // probabilistic sampling occasionally misses a fit in the open
+        // bin and spills to a new one. Post-fix: the bins-used
+        // tiebreaker in the multistart selection favors the attempt
+        // that put everything in one bin.
+        let mut bins = Vec::with_capacity(5);
+        for i in 0..5 {
+            bins.push(bin(&format!("b{i}"), 24.0, 24.0));
+        }
+        let req = PackRequest {
+            bins,
+            clearance: 0.125,
+            items: vec![rect_part("rect-a", 4, 3.0, 3.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+        };
+        let result = pack(req).unwrap();
+        assert_eq!(result.placed_count, 4);
+        assert_eq!(result.overflow_count, 0);
+        let bins_with_placements: std::collections::HashSet<&str> = result
+            .placements
+            .iter()
+            .map(|p| p.bin_id.as_str())
+            .collect();
+        assert_eq!(
+            bins_with_placements.len(),
+            1,
+            "4 small parts on a 24x24 bin should consolidate to a single bin (got {} bins: {:?})",
+            bins_with_placements.len(),
+            bins_with_placements
+        );
+    }
+
+    #[test]
     fn auto_fill_overallocation_skips_empty_bins() {
         // The frontend auto-fill bin allocator over-allocates by ~1.54×
         // (1/PACKING_EFFICIENCY_FLOOR). 10 declared bins where parts

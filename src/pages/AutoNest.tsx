@@ -57,34 +57,6 @@ import type { MaterialType } from "@/types/supabase-models"
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-/**
- * Pack pipeline selection surfaced in the Graph card header. Each value
- * represents a distinct way to drive the Rust packer; today only the
- * warm-start vs LBF-only split exists, but future pipelines (e.g. a
- * pure deterministic packer, a parallel-sampling LBF, etc.) drop in
- * here without needing more boolean toggles.
- */
-type PackPipeline = "warm-start" | "lbf-only"
-
-interface PackPipelineOption {
-  value: PackPipeline
-  label: string
-  description: string
-}
-
-const PACK_PIPELINE_OPTIONS: PackPipelineOption[] = [
-  {
-    value: "warm-start",
-    label: "Rect warm-start",
-    description: "Pre-place rectangles deterministically before LBF samples (default).",
-  },
-  {
-    value: "lbf-only",
-    label: "LBF only",
-    description: "Skip the warm-start and run probabilistic LBF only.",
-  },
-]
-
 const DEMO_STOCK: StockConfig = {
   width: 96,
   length: 48,
@@ -230,17 +202,13 @@ export function AutoNestPage() {
   const [showInscribedScrapRects, setShowInscribedScrapRects] = useState(false)
   const [showAabbOverlays, setShowAabbOverlays] = useState(false)
   const [conePackingMode, setConePackingMode] = useState<ConePackingMode>("annularSector")
-  // Pack pipeline selection. Surfaces in the Graph card header as a
-  // dropdown so future pipelines drop in next to the existing options.
-  // Maps to PackRequest.useWarmStart on the way to Rust:
-  //   - "warm-start": pre-place rectangles deterministically before LBF samples (default)
-  //   - "lbf-only":   skip the warm-start and run probabilistic LBF only (timing comparison)
-  const [pipeline, setPipeline] = useState<PackPipeline>("warm-start")
-  const useWarmStart = pipeline === "warm-start"
+  // Pre-place rectangles deterministically before LBF samples. Exposed
+  // as a Graph-card checkbox so operators can compare against LBF-only.
+  const [useWarmStart, setUseWarmStart] = useState(true)
   // Issue #23: hoist large reusable offcuts (>=40% of sheet area) into
   // their own rendered sheets so the leftover stock reads as a discrete
   // piece. Pure presentation transform; flipping doesn't re-pack.
-  const [promoteLargeOffcuts, setPromoteLargeOffcuts] = useState(true)
+  const [promoteLargeOffcuts, setPromoteLargeOffcuts] = useState(false)
   const { status: packStatus, requestPack, invalidate } = usePackGate()
 
   const selectedTemplates = useMemo(
@@ -786,37 +754,24 @@ export function AutoNestPage() {
                         checked={showInscribedScrapRects}
                         onCheckedChange={(v) => setShowInscribedScrapRects(v === true)}
                       />
-                      Show inscribed rects
+                      Show inscribed rectangles
                     </label>
                     <label className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Checkbox
                         checked={showAabbOverlays}
                         onCheckedChange={(v) => setShowAabbOverlays(v === true)}
                       />
-                      Show AABBs
+                      Show AABB
                     </label>
                     <label
                       className="flex items-center gap-2 text-xs text-muted-foreground"
-                      title={
-                        PACK_PIPELINE_OPTIONS.find((o) => o.value === pipeline)?.description ?? ""
-                      }
+                      title="Pre-place rectangles deterministically before LBF samples."
                     >
-                      Pipeline
-                      <Select
-                        value={pipeline}
-                        onValueChange={(value) => setPipeline(value as PackPipeline)}
-                      >
-                        <SelectTrigger size="sm" className="w-[148px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PACK_PIPELINE_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Checkbox
+                        checked={useWarmStart}
+                        onCheckedChange={(v) => setUseWarmStart(v === true)}
+                      />
+                      Warm-start
                     </label>
                     <label
                       className="flex items-center gap-2 text-xs text-muted-foreground"

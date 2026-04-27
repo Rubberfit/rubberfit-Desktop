@@ -198,6 +198,7 @@ interface Totals {
   partsPlaced: number
   partsOverflow: number
   fabScore: number
+  reusableOffcutCount: number
 }
 
 function buildTotals(sheets: LayoutModel[]): Totals {
@@ -209,6 +210,7 @@ function buildTotals(sheets: LayoutModel[]): Totals {
   let partsOverflow = 0
   let weightedFab = 0
   let standardCount = 0
+  let reusableOffcutCount = 0
   for (const s of sheets) {
     const isExtract = s.sheetKind === "offcut-extract"
     usedSqFt += s.usedAreaSqFt
@@ -221,11 +223,25 @@ function buildTotals(sheets: LayoutModel[]): Totals {
       weightedFab += s.fabScore
       standardCount++
     }
+    // Each reusable offcut piece counts once: promotion removes the
+    // piece from its parent's offcuts[] and re-adds it as the single
+    // entry on the synthetic, so summing across all sheets is the
+    // distinct-piece count regardless of promotion state.
+    reusableOffcutCount += s.offcuts.length
     partsPlaced += s.placedCount
     partsOverflow += s.overflowCount
   }
   const fabScore = standardCount > 0 ? weightedFab / standardCount : 0
-  return { usedSqFt, reusableSqFt, scrapSqFt, stockSqFt, partsPlaced, partsOverflow, fabScore }
+  return {
+    usedSqFt,
+    reusableSqFt,
+    scrapSqFt,
+    stockSqFt,
+    partsPlaced,
+    partsOverflow,
+    fabScore,
+    reusableOffcutCount,
+  }
 }
 
 function buildMetrics(sheets: LayoutModel[]): SimpleCutMetrics {
@@ -290,6 +306,12 @@ function SheetHeader({
             {totals.reusableSqFt > 0 && (
               <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 font-medium text-amber-600">
                 Reusable offcut: {reusablePct.toFixed(1)}%
+              </span>
+            )}
+            {totals.reusableOffcutCount > 0 && (
+              <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 font-medium text-amber-600">
+                {totals.reusableOffcutCount} reusable piece
+                {totals.reusableOffcutCount === 1 ? "" : "s"}
               </span>
             )}
             <span className="rounded-full border border-red-500/40 bg-red-500/10 px-3 py-1 font-medium text-red-600">

@@ -150,6 +150,16 @@ export interface PackRequest {
   conePackingMode?: ConePackingMode
   scrapStrategy?: ScrapStrategy
   offcutExtractionStrategy?: OffcutExtractionStrategy
+  /**
+   * Option C toggle: when true (default), the Rust packer pre-places
+   * every rect-shaped item via a deterministic greedy warm-start before
+   * jagua's probabilistic LBF sampler runs. Closes #18 (LBF tight-fit
+   * failures) and helps #17 (perf — rectangles skip LBF sampling).
+   *
+   * Set false from the AutoNest UI to compare timing against the legacy
+   * probabilistic-only pipeline. Absent → Rust default (true).
+   */
+  useWarmStart?: boolean
 }
 
 export interface Placement {

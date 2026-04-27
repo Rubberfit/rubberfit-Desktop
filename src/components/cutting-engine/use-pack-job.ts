@@ -83,6 +83,13 @@ export interface UsePackJobInput {
    * default (`convexHull`).
    */
   conePackingMode?: ConePackingMode
+  /**
+   * Option C toggle: forwarded as `PackRequest.useWarmStart`. Controls
+   * whether the Rust packer pre-places rect-shaped items via a
+   * deterministic greedy warm-start before LBF samples. When undefined,
+   * the Rust default (true) applies.
+   */
+  useWarmStart?: boolean
 }
 
 export interface UsePackJobOutput {
@@ -110,6 +117,7 @@ export function usePackJob({
   enabled,
   coneStrategy,
   conePackingMode,
+  useWarmStart,
 }: UsePackJobInput): UsePackJobOutput {
   const [layouts, setLayouts] = useState<LayoutModel[] | null>(null)
   const [isPacking, setIsPacking] = useState(false)
@@ -141,8 +149,9 @@ export function usePackJob({
         clearance,
         coneStrategy: coneStrategy ?? null,
         conePackingMode: conePackingMode ?? null,
+        useWarmStart: useWarmStart ?? null,
       }),
-    [bins, parts, clearance, coneStrategy, conePackingMode]
+    [bins, parts, clearance, coneStrategy, conePackingMode, useWarmStart]
   )
 
   // Track latest run so a stale resolve doesn't clobber a newer run's
@@ -194,6 +203,12 @@ export function usePackJob({
           ? "annularSector"
           : (coneStrategy ?? getConeStrategyFromUrl())
       if (resolvedConeStrategy) request.coneStrategy = resolvedConeStrategy
+
+      // Option C toggle: forwarded as PackRequest.useWarmStart. When
+      // undefined, Rust applies its default (true). Explicit false
+      // disables the warm-start so the operator can compare against
+      // the legacy probabilistic-only pipeline.
+      if (useWarmStart !== undefined) request.useWarmStart = useWarmStart
 
       try {
         const result = await getPackingService().pack(request)

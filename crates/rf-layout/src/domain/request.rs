@@ -161,6 +161,18 @@ pub struct PackRequest {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub offcut_extraction_strategy:
         Option<crate::application::offcut_extraction_strategy::OffcutExtractionStrategyKind>,
+    /// Option C toggle: when true (default), `pack_lbf_with_config`
+    /// runs a deterministic rectangle warm-start before LBF samples,
+    /// pre-placing every rect-shaped item via `BPProblem::place_item`
+    /// so jagua's probabilistic sampler only has to find positions for
+    /// non-rect items. Closes #18 (LBF tight-fit failures) and helps
+    /// #17 (perf — rectangles skip LBF sampling).
+    ///
+    /// Set to false from the AutoNest UI for speed-comparison testing
+    /// against the legacy probabilistic-only pipeline. None defaults to
+    /// true (warm-start enabled).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub use_warm_start: Option<bool>,
 }
 
 pub const FAST_MS: u64 = 2_000;

@@ -46,6 +46,7 @@ fn single_cone_request() -> PackRequest {
         cone_packing_mode: None,
         scrap_strategy: None,
         offcut_extraction_strategy: None,
+        use_warm_start: None,
     }
 }
 

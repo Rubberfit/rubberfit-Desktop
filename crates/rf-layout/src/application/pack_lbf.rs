@@ -20,7 +20,7 @@ use crate::infrastructure::jagua_adapter::{shift_dtransformation, to_jagua_insta
 use jagua_rs::entities::{Instance, LayoutSnapshot, PlacedItem};
 use jagua_rs::geometry::DTransformation;
 use jagua_rs::io::export::int_to_ext_transformation;
-use jagua_rs::probs::bpp::entities::BPInstance;
+use jagua_rs::probs::bpp::entities::{BPInstance, BPLayoutType, BPPlacement};
 use lbf::config::LBFConfig;
 use lbf::opt::lbf_bpp::LBFOptimizerBP;
 use rand::rngs::SmallRng;
@@ -58,6 +58,14 @@ pub struct PackLbfConfig {
     /// Number of multistart attempts. Each attempt uses a different
     /// seed derived from the base seed. The best-placed result wins.
     pub multistart_seeds: usize,
+    /// Option C: when true (default), run a deterministic rectangle
+    /// warm-start (`warm_start::greedy_bottom_left`) before LBF samples.
+    /// Pre-places every rect-shaped item via `BPProblem::place_item` so
+    /// LBF only has to find positions for non-rect remainders. Closes
+    /// #18 (LBF probabilistic-sampler tight-fit failures) for any job
+    /// containing rectangles. Set to false for speed-comparison testing
+    /// against the legacy probabilistic-only pipeline.
+    pub use_warm_start: bool,
 }
 
 impl Default for PackLbfConfig {
@@ -66,6 +74,7 @@ impl Default for PackLbfConfig {
             n_samples: DEFAULT_N_SAMPLES,
             ls_frac: DEFAULT_LS_FRAC,
             multistart_seeds: DEFAULT_MULTISTART_SEEDS,
+            use_warm_start: true,
         }
     }
 }
@@ -102,6 +111,23 @@ pub fn pack_lbf_with_config(
 
     let instance = to_jagua_instance(&request.bins, &request.items, request.clearance)?;
 
+    // Option C: deterministic rectangle warm-start. Pre-places every
+    // rect-shaped item at corner-tight positions before LBF samples,
+    // so the probabilistic sampler only needs to find spots for non-
+    // rect items (cones, circles, trapezoids). Closes #18 for any job
+    // that contains rectangles. Falls back to empty (LBF runs as today)
+    // when the toggle is off or no rects are present.
+    //
+    // Per-request override: PackRequest.use_warm_start, when set,
+    // takes precedence over cfg.use_warm_start. Lets the AutoNest UI
+    // toggle speed-compare against the legacy pipeline without rebuilding.
+    let use_warm_start = request.use_warm_start.unwrap_or(cfg.use_warm_start);
+    let warm_start: Vec<(usize, BPPlacement)> = if use_warm_start {
+        run_greedy_warm_start(&request)
+    } else {
+        Vec::new()
+    };
+
     // Honour the caller's time budget. We stop launching new multistart
     // attempts once the deadline elapses — the best result so far is
     // returned. At least one attempt always runs.
@@ -116,7 +142,26 @@ pub fn pack_lbf_with_config(
     // stay reproducible across runs. Multistart derives attempt seeds by
     // `base + offset` â€” each attempt explores a different RNG trajectory.
     let base_seed = request.seed.unwrap_or(42);
-    let seeds: Vec<u64> = (0..cfg.multistart_seeds as u64)
+
+    // Skip multistart redundancy when the warm-start placed every item
+    // OR when all items are axis-aligned rectangles. In both cases LBF
+    // has nothing useful to discover beyond the deterministic warm-start:
+    //   - Warm-start covers all → solve() iterates with all demand=0,
+    //     no actual sampling work
+    //   - All-rect partial → greedy already determined the bin's max
+    //     capacity (provably optimal for axis-aligned rect grids), so
+    //     LBF's probabilistic sampler has no chance of finding more
+    //     positions. Each extra attempt is pure clone + place_item
+    //     overhead.
+    let total_demand: usize = request.items.iter().map(|p| p.quantity as usize).sum();
+    let all_rectangles = request.items.iter().all(is_axis_aligned_rect);
+    let attempts = if warm_start.len() >= total_demand || (use_warm_start && all_rectangles) {
+        1
+    } else {
+        cfg.multistart_seeds
+    };
+
+    let seeds: Vec<u64> = (0..attempts as u64)
         .map(|i| base_seed.wrapping_add(i))
         .collect();
 
@@ -137,7 +182,13 @@ pub fn pack_lbf_with_config(
             break;
         }
 
-        let sol = run_single_lbf(&instance, seed, cfg.n_samples, cfg.ls_frac);
+        let sol = run_single_lbf_with_warm_start(
+            &instance,
+            seed,
+            cfg.n_samples,
+            cfg.ls_frac,
+            &warm_start,
+        );
         let placed: usize = sol
             .layout_snapshots
             .values()
@@ -297,18 +348,25 @@ pub fn pack_lbf_with_config(
     })
 }
 
-/// Run one LBF attempt. Mirrors `tests/lbf_bench.rs::run_lbf` but lives
-/// inside the crate so the pack path and the bench can't drift.
-fn run_single_lbf(
+/// Run one LBF attempt with optional warm-start pre-placements. Pass
+/// an empty slice for the legacy probabilistic-only behavior.
+///
+/// Each warm-start placement decrements `item_demand_qtys[item_id]` by
+/// 1; jagua's solver loop walks items via `while
+/// item_demand_qtys[item_id] > 0` (lbf_bpp.rs) so warm-started items
+/// are naturally skipped — `solve()` only places remaining demand.
+///
+/// Warm-start items use `BPLayoutType::Closed { bin_id }`; the first
+/// placement to a bin opens its layout and we re-key subsequent
+/// placements to that bin to `BPLayoutType::Open(lkey)` so they all
+/// land in the same layout instead of opening a fresh one each time.
+fn run_single_lbf_with_warm_start(
     instance: &BPInstance,
     seed: u64,
     n_samples: usize,
     ls_frac: f32,
+    warm_start: &[(usize, BPPlacement)],
 ) -> jagua_rs::probs::bpp::entities::BPSolution {
-    // Pre-simplification + concavity smoothing are jagua-rs knobs for
-    // reducing CDE load. RF polygons come from user CSVs and already
-    // match domain units exactly; we do not want surprising geometry
-    // changes inside the solver.
     let config = LBFConfig {
         n_samples,
         ls_frac,
@@ -320,7 +378,163 @@ fn run_single_lbf(
 
     let rng = SmallRng::seed_from_u64(seed);
     let mut opt = LBFOptimizerBP::new(instance.clone(), config, rng);
+
+    // Pre-place the warm-start. Track LayKey per bin so the second+
+    // placement to the same bin lands in its open layout instead of
+    // opening a duplicate.
+    let mut bin_to_lkey: HashMap<usize, jagua_rs::probs::bpp::entities::LayKey> = HashMap::new();
+    for (_item_id, bp_placement) in warm_start {
+        let mut placement = *bp_placement;
+        if let BPLayoutType::Closed { bin_id } = placement.layout_id {
+            if let Some(&lkey) = bin_to_lkey.get(&bin_id) {
+                placement.layout_id = BPLayoutType::Open(lkey);
+            }
+        }
+        let bin_id = match bp_placement.layout_id {
+            BPLayoutType::Closed { bin_id } => bin_id,
+            BPLayoutType::Open(_) => continue, // shouldn't happen for warm-start input
+        };
+        let (lkey, _) = opt.problem.place_item(placement);
+        bin_to_lkey.entry(bin_id).or_insert(lkey);
+    }
+
     opt.solve()
+}
+
+/// True when the part is an axis-aligned rectangle the greedy packer
+/// can handle. See `run_greedy_warm_start` for filter rationale.
+pub fn is_axis_aligned_rect(p: &crate::domain::Part) -> bool {
+    if matches!(p.shape_spec.as_ref().map(|s| s.kind.as_str()), Some("rect")) {
+        return true;
+    }
+    if p.shape_spec.is_some() {
+        return false;
+    }
+    // No shape_spec: detect 4-vertex axis-aligned rectangle by polygon.
+    let poly = p.polygon_slice();
+    if poly.len() != 4 {
+        return false;
+    }
+    // Axis-aligned: every edge is either horizontal or vertical.
+    for i in 0..4 {
+        let a = poly[i];
+        let b = poly[(i + 1) % 4];
+        let dx = (a.x - b.x).abs();
+        let dy = (a.y - b.y).abs();
+        let horizontal = dy < 1e-9 && dx > 1e-9;
+        let vertical = dx < 1e-9 && dy > 1e-9;
+        if !(horizontal || vertical) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Build a deterministic warm-start for jagua's BPProblem by running
+/// `warm_start::greedy_bottom_left` on the rect-only subset of items,
+/// per bin in request order. Returns `(item_id, BPPlacement)` pairs
+/// suitable for `run_single_lbf_with_warm_start`.
+///
+/// Filtering: items with `shape_spec.kind == "rect"` are eligible. This
+/// includes user rectangles AND unrolled cylinders (the TS layer ships
+/// cylinders as `kind: "rect"` with width = π·diameter). Cones, circles,
+/// trapezoids, and raw-polygon parts skip the warm-start and flow
+/// straight to LBF.
+///
+/// Per-bin loop: greedy_bottom_left runs against the remaining-demand
+/// rect items for each bin; we decrement demand by what greedy placed
+/// before invoking the next bin. Mirrors the per-bin pattern in
+/// `pack_lbf_lns_with_config`'s sequential loop.
+///
+/// item_id: each greedy `SeedPlacement.shape_id` is mapped back to the
+/// original `request.items[i]` index (jagua's `BPInstance::item_id`).
+/// Items with `quantity > 1` consume one item_id per placement.
+fn run_greedy_warm_start(request: &PackRequest) -> Vec<(usize, BPPlacement)> {
+    use crate::infrastructure::warm_start::greedy_bottom_left;
+
+    // Filter rect-only items with their original index preserved.
+    // Accept either:
+    //   (a) explicit shape_spec.kind == "rect" — production AutoNest path
+    //       (templateToPart in AutoNest.tsx sets this for both rectangles
+    //       AND unrolled cylinders)
+    //   (b) no shape_spec AND polygon is an axis-aligned 4-vertex
+    //       rectangle — used by Rust unit-test fixtures that build Parts
+    //       directly without going through the shape_builder pipeline
+    let rect_indexed: Vec<(usize, &crate::domain::Part)> = request
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| is_axis_aligned_rect(p))
+        .collect();
+
+    if rect_indexed.is_empty() {
+        return Vec::new();
+    }
+
+    // Per-shape remaining demand. Decremented as bins consume items.
+    let mut remaining_qty: HashMap<String, u32> = rect_indexed
+        .iter()
+        .map(|(_, p)| (p.shape_id.clone(), p.quantity))
+        .collect();
+    // Fresh per-shape instance counter — yields the next item_id slot
+    // for jagua. Must mirror the order jagua sees in to_jagua_instance,
+    // which numbers items 0..N by their position in request.items.
+    // Each shape may have quantity > 1; the demand is split into
+    // separate jagua items at import time? No — looking at jagua-rs's
+    // BPP import: a single ExtItem with `demand: q` becomes ONE jagua
+    // item with multiple "instances." So item_id is per-shape, not
+    // per-instance. Each `BPProblem::place_item` call decrements that
+    // shape's `item_demand_qtys[item_id]` by 1.
+    let mut warm_start: Vec<(usize, BPPlacement)> = Vec::new();
+
+    for (bin_idx, bin) in request.bins.iter().enumerate() {
+        // Build the rect-only Part list for this bin from remaining_qty.
+        let bin_items: Vec<crate::domain::Part> = rect_indexed
+            .iter()
+            .filter_map(|(_, p)| {
+                let q = *remaining_qty.get(&p.shape_id)?;
+                if q == 0 {
+                    return None;
+                }
+                let mut clone = (*p).clone();
+                clone.quantity = q;
+                Some(clone)
+            })
+            .collect();
+
+        if bin_items.is_empty() {
+            break; // every rect-shape demand satisfied
+        }
+
+        let seed_result = match greedy_bottom_left(bin, &bin_items, request.clearance) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        for seed in &seed_result.placements {
+            // Map shape_id back to the original request.items index.
+            let item_id = match rect_indexed
+                .iter()
+                .find(|(_, p)| p.shape_id == seed.shape_id)
+            {
+                Some((idx, _)) => *idx,
+                None => continue,
+            };
+            let bp_placement = crate::infrastructure::jagua_adapter::seed_to_bp_placement(
+                seed,
+                item_id,
+                BPLayoutType::Closed { bin_id: bin_idx },
+            );
+            warm_start.push((item_id, bp_placement));
+
+            // Decrement remaining demand.
+            if let Some(q) = remaining_qty.get_mut(&seed.shape_id) {
+                *q = q.saturating_sub(1);
+            }
+        }
+    }
+
+    warm_start
 }
 
 /// Translate a single-bin `LayoutSnapshot` into RF `Placement`s.
@@ -520,6 +734,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         }
     }
 

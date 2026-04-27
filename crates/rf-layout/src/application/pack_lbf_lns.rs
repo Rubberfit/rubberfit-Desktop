@@ -108,7 +108,23 @@ pub fn pack_lbf_lns_with_config(
     // probabilistic sampling misses tight-fit positions in earlier ones.
     // Re-packing with a smaller bin slice forces LBF to find tighter
     // layouts. Gated by REMA_DISABLE_CONSOLIDATE for debugging.
-    if std::env::var("REMA_DISABLE_CONSOLIDATE").as_deref() != Ok("true") {
+    //
+    // Skip for all-rectangle jobs when warm-start handled them: greedy
+    // BSSF already minimizes bin count via corner-tight packing, so
+    // re-running with fewer bins would just fail and waste a full
+    // LBF+LNS+cross-bin pipeline pass per attempt. This is the bulk of
+    // wall-time on rect-heavy jobs (R3 = 30× 6×6 was paying ~5s per
+    // skipped retry pre-fix).
+    let warm_start_used = request.use_warm_start.unwrap_or(true);
+    let all_rectangles = request
+        .items
+        .iter()
+        .all(crate::application::pack_lbf::is_axis_aligned_rect);
+    let skip_consolidate_for_rect_only = warm_start_used && all_rectangles;
+
+    if std::env::var("REMA_DISABLE_CONSOLIDATE").as_deref() != Ok("true")
+        && !skip_consolidate_for_rect_only
+    {
         result = consolidate_via_repack(result, &request, &cfg)?;
     }
 
@@ -173,6 +189,7 @@ fn pack_into_bin_sequence(
             cone_packing_mode: request.cone_packing_mode,
             scrap_strategy: request.scrap_strategy,
             offcut_extraction_strategy: request.offcut_extraction_strategy,
+            use_warm_start: request.use_warm_start,
         };
 
         let sub_result = pack_lbf_lns_single_bin(sub_request, cfg.clone())?;
@@ -298,6 +315,28 @@ fn pack_lbf_lns_single_bin(
     if lbf_result.overflow_count == 0 {
         // Nothing left to grow, but we still want to polish the layout
         // so roll-2-style "fits with gaps" outputs get compacted.
+        let mut r = lbf_result;
+        if polish_enabled() {
+            r = polish_pack_result(r, &request.bins, request.clearance);
+        }
+        r.run_time_ms = Some(started_at.elapsed().as_millis() as u64);
+        return Ok(r);
+    }
+
+    // Skip LNS growth for axis-aligned-rectangle single-bin sub-requests
+    // when the warm-start ran. greedy_bottom_left determines the bin's
+    // optimal rectangle capacity; the overflow that LBF returns is
+    // legitimately not fittable, not something the GLS separator can
+    // resolve by force-fitting. Each LNS attempt costs up to
+    // `attempts_per_item × per_grow_budget_ms` (≈600ms × overflow count
+    // by default — easily 12s+ for full-bin scenarios). This was the
+    // dominant time sink on R3 (30× 6×6 on 24×24 fixtures).
+    let use_warm_start = request.use_warm_start.unwrap_or(true);
+    let all_rectangles = request
+        .items
+        .iter()
+        .all(crate::application::pack_lbf::is_axis_aligned_rect);
+    if use_warm_start && all_rectangles {
         let mut r = lbf_result;
         if polish_enabled() {
             r = polish_pack_result(r, &request.bins, request.clearance);
@@ -999,6 +1038,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         }
     }
 

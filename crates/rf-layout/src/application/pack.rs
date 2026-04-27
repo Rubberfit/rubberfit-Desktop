@@ -305,6 +305,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         assert!(matches!(pack(req), Err(PackError::NoBins)));
     }
@@ -326,6 +327,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         assert!(matches!(pack(req), Err(PackError::NoItems)));
     }
@@ -347,6 +349,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 3);
@@ -372,6 +375,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         let a_indices: Vec<u32> = result
@@ -408,6 +412,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 2);
@@ -431,6 +436,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         assert!(
@@ -473,6 +479,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(
@@ -505,6 +512,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         assert!(result.placed_count > 0, "at least some parts must place");
@@ -532,6 +540,103 @@ mod tests {
                 );
             }
         }
+    }
+
+    // R6 — three tests documenting that wall-flush + Option C greedy
+    // warm-start let near-bin-size rectangles fit reliably. Pre-Option-C,
+    // the LBF probabilistic sampler couldn't hit the 1×1 valid centroid
+    // region in a ~4636 in² container; the warm-start now places the
+    // 47×95 part deterministically before LBF sampling runs. Closed #18.
+
+    #[test]
+    fn r6_near_bin_size_part_fits_via_pack_lbf() {
+        // Test pack_lbf directly (no LNS, no consolidation) to isolate
+        // where R6 fails.
+        let req = PackRequest {
+            bins: vec![bin("b1", 48.0, 96.0)],
+            clearance: 0.125,
+            items: vec![rect_part("near-full", 1, 47.0, 95.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+            use_warm_start: None,
+        };
+        let result = crate::application::pack_lbf::pack_lbf(req).unwrap();
+        assert_eq!(
+            result.placed_count, 1,
+            "47x95 part should fit on 48x96 bin via pack_lbf; got placed={}, overflow={}",
+            result.placed_count, result.overflow_count
+        );
+    }
+
+    #[test]
+    fn r6_near_bin_size_part_fits_via_pack_lbf_lns() {
+        // Same as r6_near_bin_size_part_fits_with_wall_flush but
+        // routes through pack_lbf_lns (the production path the Tauri
+        // frontend hits, not the FFD-orchestrated `pack` entry).
+        let req = PackRequest {
+            bins: vec![bin("b1", 48.0, 96.0)],
+            clearance: 0.125,
+            items: vec![rect_part("near-full", 1, 47.0, 95.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+            use_warm_start: None,
+        };
+        let result = crate::application::pack_lbf_lns::pack_lbf_lns(req).unwrap();
+        assert_eq!(
+            result.placed_count, 1,
+            "47x95 part should fit on 48x96 bin via pack_lbf_lns; got placed={}, overflow={}",
+            result.placed_count, result.overflow_count
+        );
+    }
+
+    #[test]
+    fn r6_near_bin_size_part_fits_with_wall_flush() {
+        // 47×95 part on a 48×96 bin with 0.125 kerf. Pre-wall-flush:
+        // needed 47.25×95.25 of bin = 0×0 valid centroid region →
+        // overflow. Post-wall-flush: needs exactly 47×95 = 1×1 valid
+        // centroid region. LBF probabilistic sampling should still find
+        // it within 5000 samples × 10 multistart seeds.
+        let req = PackRequest {
+            bins: vec![bin("b1", 48.0, 96.0)],
+            clearance: 0.125,
+            items: vec![rect_part("near-full", 1, 47.0, 95.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+            use_warm_start: None,
+        };
+        let result = pack(req).unwrap();
+        assert_eq!(
+            result.placed_count, 1,
+            "47x95 part should fit on 48x96 bin post-wall-flush; got placed={}, overflow={}",
+            result.placed_count, result.overflow_count
+        );
     }
 
     #[test]
@@ -563,6 +668,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         let bins_with_placements: std::collections::HashSet<&str> = result
@@ -617,6 +723,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 4);
@@ -662,6 +769,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let start = std::time::Instant::now();
         let result = pack(req).unwrap();
@@ -701,6 +809,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 3);

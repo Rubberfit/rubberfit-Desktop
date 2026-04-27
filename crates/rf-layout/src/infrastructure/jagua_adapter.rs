@@ -1,12 +1,13 @@
 // engine/crates/rf-layout/src/infrastructure/jagua_adapter.rs
 use crate::domain::{Bin, PackError, Part};
+use crate::infrastructure::warm_start::SeedPlacement;
 
 use jagua_rs::collision_detection::CDEConfig;
 use jagua_rs::geometry::fail_fast::SPSurrogateConfig;
 use jagua_rs::geometry::DTransformation;
 use jagua_rs::io::ext_repr::{ExtContainer, ExtItem as BaseExtItem, ExtSPolygon, ExtShape};
 use jagua_rs::io::import::Importer;
-use jagua_rs::probs::bpp::entities::BPInstance;
+use jagua_rs::probs::bpp::entities::{BPInstance, BPLayoutType, BPPlacement};
 use jagua_rs::probs::bpp::io::ext_repr::{ExtBPInstance, ExtBin, ExtItem as BpExtItem};
 use jagua_rs::probs::bpp::io::import_instance;
 
@@ -27,6 +28,38 @@ pub fn shift_dtransformation(t: &DTransformation, dx: f32, dy: f32) -> DTransfor
             t.translation.1.into_inner() + dy,
         ),
     )
+}
+
+/// Convert a greedy `SeedPlacement` (world bbox-min coords, post-greedy
+/// wall-margin offset) into a jagua `BPPlacement` whose `d_transf`
+/// translation places the polygon centroid in jagua's expanded-bin
+/// coordinate frame.
+///
+/// The math relies on two offsets cancelling exactly:
+///   - greedy_rectangle_pack returns `seed.x = bbox_min_x + clearance`
+///     because it adds a wall-margin to bin-packing's inner-area coords
+///     (warm_start.rs:338-339).
+///   - jagua's `build_ext_bin` expands the bin by `clearance` on every
+///     side, so jagua coords are `world + clearance`.
+///
+/// Net: `jagua_translation = (seed.bbox_min - clearance) + dims/2 +
+/// clearance = seed.bbox_min + dims/2`. The two clearance terms cancel,
+/// so a flush-corner placement just needs `seed.x + width/2`.
+///
+/// Used by Option C's greedy warm-start in `pack_lbf` to pre-load
+/// rectangle placements into jagua's BPProblem before LBF::solve() runs.
+pub fn seed_to_bp_placement(
+    seed: &SeedPlacement,
+    item_id: usize,
+    layout_id: BPLayoutType,
+) -> BPPlacement {
+    let tx = (seed.x + seed.width / 2.0) as f32;
+    let ty = (seed.y + seed.height / 2.0) as f32;
+    BPPlacement {
+        layout_id,
+        item_id,
+        d_transf: DTransformation::new(seed.rotation_rad as f32, (tx, ty)),
+    }
 }
 
 /// Guard an f64 -> f32 narrowing conversion against NaN, infinity, and values

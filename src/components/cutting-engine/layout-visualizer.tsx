@@ -664,7 +664,7 @@ function SheetSvg({
               <RegionShape
                 region={region}
                 fill={`url(#${offcutId})`}
-                stroke={OFFCUT_PATTERN_BASE}
+                stroke={OFFCUT_OUTLINE}
                 layout={layout}
               />
               <OffcutLabel region={region} layout={layout} />
@@ -820,18 +820,21 @@ function ScrapLayer({
 // ── Region renderer (offcut + scrap) ──────────────────────────────────────
 
 /**
- * Offcut pattern base colour (must match the `<rect fill="...">` inside
- * the offcut pattern in `PatternDefs` below). Passed as `stroke` on
- * offcut shapes so the 1-pixel anti-aliased rim paints the pattern's
- * base colour rather than letting the underlying stock pattern
- * (#f5f5f4 — near-white) bleed through as a thin white seam.
+ * Visible amber outline drawn around each Reusable offcut so its bbox
+ * reads at a glance against the bin-wide scrap pattern. Picked to match
+ * the diagonal-stripe colour inside the offcut pattern itself
+ * (`rgba(245,158,11,0.55)`) at slightly higher opacity, so the outline
+ * looks like a thicker version of the fill rather than an unrelated
+ * border colour. The stroke also covers the sub-pixel anti-aliased rim
+ * where the underlying stock pattern (#f5f5f4 — near-white) would
+ * otherwise bleed through.
  *
  * Scrap regions intentionally render without a stroke: a light-red
  * rim around every scrap polygon read as if the offcut/sheet borders
  * themselves were classified as waste. The faint anti-aliased seam
  * against the stock pattern is the accepted tradeoff.
  */
-const OFFCUT_PATTERN_BASE = "#fef3c7"
+const OFFCUT_OUTLINE = "rgba(245, 158, 11, 0.75)"
 
 /**
  * Renders one scrap or offcut region. When `cutouts` is supplied, any
@@ -875,13 +878,13 @@ function RegionShape({
 }) {
   const transformX = (x: number) => layout.surfaceX + x * layout.scale
   const transformY = (y: number) => layout.surfaceY + y * layout.scale
-  // Width 1.05 = a hair over one device pixel, wide enough to cover
-  // the sub-pixel anti-aliased rim that would otherwise let the
-  // underlying stock pattern (#f5f5f4 — near-white) bleed through.
-  // Stroke is applied only to the OUTER contour as a separate
-  // overlay element so the cutout subpaths (placed parts) don't
-  // also get rimmed.
-  const strokeWidth = 1.05
+  // 1.5 device pixels — thick enough to read as a deliberate outline
+  // around Reusable offcuts (rather than the hairline anti-aliasing
+  // cover the previous 1.05 width acted as), still thin enough to not
+  // hide the offcut's diagonal-stripe pattern. Applied only to the
+  // OUTER contour as a separate overlay element so the cutout
+  // subpaths (placed parts) don't also get rimmed.
+  const strokeWidth = 1.5
 
   if (region.polygon && region.polygon.length >= 3) {
     const overlappingCutouts = cutouts ? cutoutsOverlapping(region, cutouts) : []

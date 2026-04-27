@@ -78,24 +78,29 @@ pub fn largest_inscribed_rect_avoiding(
     ))
 }
 
-/// Expand a candidate axis-aligned `rect` outward in each of the four
-/// cardinal directions until it touches an actual edge of `polygon` or
-/// any of `obstacles`. Returns the snapped rect (or the input unchanged
-/// if no expansion is possible).
+/// Snap a candidate axis-aligned `rect` to the actual geometric edges
+/// of `polygon` and `obstacles`. Each side may grow OR shrink by up to
+/// `max_snap`. Returns the snapped rect (or the input unchanged if no
+/// adjustment is needed).
 ///
 /// The grid sampler in `largest_inscribed_rect_avoiding` is conservative
 /// at borders: a cell whose centre sits exactly on a polygon/obstacle
 /// boundary may be excluded, leaving up to half a grid step of free
-/// space along each side that the sampler can't represent. The
+/// space along each side that the sampler can't represent. Worse, when
+/// an obstacle's boundary lands BETWEEN cell centres on the other side
+/// (e.g. an obstacle's right edge at x=6.0068 with the cell at x=5.875
+/// occupied and the cell at x=6.125 free), the inscribed rect's left
+/// edge sits at the cell boundary x=6.0 — INSIDE the obstacle. The
 /// post-pack offcut extractor (`rf_layout::application::free_space`)
-/// uses this helper to recover that lost space, snapping the emitted
-/// reusable rect to the true geometric edge before classification.
+/// uses this helper to (a) recover the half-cell gap when an obstacle
+/// is fully outside the candidate rect, and (b) push the candidate
+/// rect inward when an obstacle straddles its edge.
 ///
 /// Snap distance is capped at `max_snap` per side. Pass the same
-/// `grid_step` the sampler used — recovering grid quantization, not
-/// exploring deeper into the polygon. With a tighter cap the helper
-/// becomes a strict refinement: snapped rects can only ever grow vs.
-/// the input, never shrink.
+/// `grid_step` the sampler used — both directions are bounded by it,
+/// so the worst case is "rect loses one grid cell on a side that
+/// overlapped an obstacle." Obstacles always win over polygon edges
+/// (snap targets are pushed strictly outside obstacles via `+EPS`).
 ///
 /// Curved / diagonal edges of the polygon and obstacles are handled
 /// conservatively: snap stops at the bbox of any non-axis-aligned edge
@@ -118,13 +123,17 @@ pub fn snap_rect_to_polygon_and_obstacles(
     let rx1 = rect.x + rect.width;
     let ry1 = rect.y + rect.height;
 
-    // Snap targets, initialised to the maximum-allowed extension (the
-    // floor on each side). Edges then push them BACK toward the rect:
-    //   left/bottom — `new_x_min` and `new_y_min` rise as edges block
-    //   the snap from extending past them.
-    //   right/top   — `new_x_max` and `new_y_max` fall.
-    // After processing all edges we clamp into [rect_edge - max_snap,
-    // rect_edge] so snap can only ever grow the rect.
+    // Snap targets, initialised to the maximum-allowed outward
+    // extension. Edge processing then pushes them toward (or past) the
+    // rect's edge:
+    //   left/bottom — `new_x_min` and `new_y_min` rise as obstacles or
+    //                 polygon edges block extension. Obstacles whose
+    //                 edges are slightly INSIDE the rect push past
+    //                 the rect's edge, shrinking the rect inward.
+    //   right/top   — `new_x_max` and `new_y_max` fall, symmetrically.
+    // After processing all edges the snap targets are clamped to
+    // [rect_edge - max_snap, rect_edge + max_snap] so snap can grow OR
+    // shrink the rect by up to `max_snap` per side.
     let mut new_x_min = rx0 - max_snap;
     let mut new_x_max = rx1 + max_snap;
     let mut new_y_min = ry0 - max_snap;
@@ -137,6 +146,7 @@ pub fn snap_rect_to_polygon_and_obstacles(
         ry0,
         rx1,
         ry1,
+        max_snap,
         &mut new_x_min,
         &mut new_x_max,
         &mut new_y_min,
@@ -150,6 +160,7 @@ pub fn snap_rect_to_polygon_and_obstacles(
             ry0,
             rx1,
             ry1,
+            max_snap,
             &mut new_x_min,
             &mut new_x_max,
             &mut new_y_min,
@@ -157,17 +168,27 @@ pub fn snap_rect_to_polygon_and_obstacles(
         );
     }
 
-    // Cap snap distance per side and clamp so we never shrink.
-    let snapped_x_min = new_x_min.clamp(rx0 - max_snap, rx0);
-    let snapped_x_max = new_x_max.clamp(rx1, rx1 + max_snap);
-    let snapped_y_min = new_y_min.clamp(ry0 - max_snap, ry0);
-    let snapped_y_max = new_y_max.clamp(ry1, ry1 + max_snap);
+    // Cap snap distance per side. Range allows snap to grow OR shrink
+    // by up to `max_snap` per side — shrinkage covers the case where
+    // an obstacle straddles the rect's edge (see file header docs).
+    let snapped_x_min = new_x_min.clamp(rx0 - max_snap, rx0 + max_snap);
+    let snapped_x_max = new_x_max.clamp(rx1 - max_snap, rx1 + max_snap);
+    let snapped_y_min = new_y_min.clamp(ry0 - max_snap, ry0 + max_snap);
+    let snapped_y_max = new_y_max.clamp(ry1 - max_snap, ry1 + max_snap);
+
+    // Re-establish min ≤ max on each axis. With both edges allowed to
+    // shrink, an obstacle that crosses the entire rect on one axis
+    // could in principle drive the two clamps past each other; that
+    // collapses the rect to width/height 0 here rather than producing
+    // a negative dimension.
+    let snapped_x_max = snapped_x_max.max(snapped_x_min);
+    let snapped_y_max = snapped_y_max.max(snapped_y_min);
 
     Rect::new(
         snapped_x_min,
         snapped_y_min,
-        (snapped_x_max - snapped_x_min).max(0.0),
-        (snapped_y_max - snapped_y_min).max(0.0),
+        snapped_x_max - snapped_x_min,
+        snapped_y_max - snapped_y_min,
     )
 }
 
@@ -187,6 +208,7 @@ fn process_polygon_for_snap(
     ry0: f64,
     rx1: f64,
     ry1: f64,
+    max_snap: f64,
     new_x_min: &mut f64,
     new_x_max: &mut f64,
     new_y_min: &mut f64,
@@ -232,12 +254,18 @@ fn process_polygon_for_snap(
                     }
                 }
                 EdgeOrigin::Obstacle => {
-                    if x <= rx0 + EPS {
+                    // Trigger window is `rx0 + max_snap` (not `+EPS`)
+                    // so obstacle edges that landed slightly INSIDE the
+                    // candidate rect — typical of grid quantization
+                    // when the obstacle's right edge falls between
+                    // cell centres — also snap-correct. The clamp
+                    // below caps the inward push at `max_snap`.
+                    if x <= rx0 + max_snap {
                         let snapped_to = x + EPS;
                         if snapped_to > *new_x_min {
                             *new_x_min = snapped_to;
                         }
-                    } else if x >= rx1 - EPS {
+                    } else if x >= rx1 - max_snap {
                         let snapped_to = x - EPS;
                         if snapped_to < *new_x_max {
                             *new_x_max = snapped_to;
@@ -260,12 +288,16 @@ fn process_polygon_for_snap(
                     }
                 }
                 EdgeOrigin::Obstacle => {
-                    if y <= ry0 + EPS {
+                    // Trigger window is `ry0 + max_snap` for the same
+                    // reason as the vertical-edge branch above —
+                    // obstacle edges that landed slightly inside the
+                    // candidate rect get snap-corrected by inward push.
+                    if y <= ry0 + max_snap {
                         let snapped_to = y + EPS;
                         if snapped_to > *new_y_min {
                             *new_y_min = snapped_to;
                         }
-                    } else if y >= ry1 - EPS {
+                    } else if y >= ry1 - max_snap {
                         let snapped_to = y - EPS;
                         if snapped_to < *new_y_max {
                             *new_y_max = snapped_to;
@@ -559,6 +591,113 @@ mod tests {
             "snap should grow left, got x={}",
             snapped.x
         );
+    }
+
+    /// Issue B / Issue #20 regression. The inscribed-rect search
+    /// returns rectangles aligned to grid cell boundaries, so an
+    /// obstacle whose right edge lands BETWEEN cell centres can sit
+    /// slightly inside the candidate rect's left edge. Snap must push
+    /// the rect's left edge inward (rightward) to clear the obstacle —
+    /// pre-fix it clamped back to rx0 and the rect overlapped the
+    /// obstacle by up to one grid step.
+    #[test]
+    fn snap_pulls_left_edge_in_when_axis_aligned_obstacle_right_edge_just_inside_rect() {
+        // 24×24 polygon. Obstacle's right edge at x=6.0068 (1/72" past
+        // the inscribed rect's grid-aligned left edge at x=6.0).
+        let poly = Polygon::new(vec![
+            Point2D::new(0.0, 0.0),
+            Point2D::new(24.0, 0.0),
+            Point2D::new(24.0, 24.0),
+            Point2D::new(0.0, 24.0),
+        ])
+        .unwrap();
+        let obstacle = Polygon::new(vec![
+            Point2D::new(0.0, 12.0),
+            Point2D::new(6.0068, 12.0),
+            Point2D::new(6.0068, 18.0),
+            Point2D::new(0.0, 18.0),
+        ])
+        .unwrap();
+        let r = Rect::new(6.0, 0.0, 18.0, 24.0);
+        let snapped = snap_rect_to_polygon_and_obstacles(r, &poly, &[obstacle], 0.25);
+        assert!(
+            snapped.x >= 6.0068 && snapped.x <= 6.0068 + 1e-3,
+            "snapped.x={} should sit just past obstacle's right edge 6.0068",
+            snapped.x
+        );
+        let right = snapped.x + snapped.width;
+        assert!(
+            (right - 24.0).abs() < 1e-9,
+            "right={}, expected 24.0",
+            right
+        );
+    }
+
+    /// Same regression but with a polygon whose top/bottom edges are
+    /// slightly diagonal — mimics the f32-rotated polygon jagua emits
+    /// for parts placed at rotation ≈ π/2. The diagonal-obstacle branch
+    /// (`x_lo <= rx0 + EPS`) fires on the straddling top/bottom edges
+    /// and the new clamp lets the resulting `x_hi + EPS` snap target
+    /// take effect.
+    #[test]
+    fn snap_pulls_left_edge_in_when_diagonal_obstacle_right_edge_just_inside_rect() {
+        let poly = Polygon::new(vec![
+            Point2D::new(0.0, 0.0),
+            Point2D::new(24.0, 0.0),
+            Point2D::new(24.0, 24.0),
+            Point2D::new(0.0, 24.0),
+        ])
+        .unwrap();
+        // Vertices mirror an actual jagua p[29] from the user's repro:
+        // 90°-rotated 6×6 placed flush-ish at the left wall, with f32
+        // noise leaving the top edge tilted.
+        let obstacle = Polygon::new(vec![
+            Point2D::new(6.006848, 18.403025),
+            Point2D::new(0.006848, 18.403172),
+            Point2D::new(0.006701, 12.403172),
+            Point2D::new(6.006701, 12.403025),
+        ])
+        .unwrap();
+        let r = Rect::new(6.0, 0.0, 18.0, 24.0);
+        let snapped = snap_rect_to_polygon_and_obstacles(r, &poly, &[obstacle], 0.25);
+        // Snap should push left edge to obstacle's max x (~6.006848)
+        // plus EPS. Anything ≥ 6.006848 is correct; allow a small slop
+        // for the +EPS push.
+        assert!(
+            snapped.x >= 6.006848 && snapped.x <= 6.006848 + 1e-3,
+            "snapped.x={} should sit just past obstacle's max x 6.006848",
+            snapped.x
+        );
+    }
+
+    #[test]
+    fn snap_does_not_shrink_when_no_obstacle_overlap() {
+        // Pure extension case: obstacle fully to the left of the rect's
+        // left edge. Snap should grow leftward toward the obstacle's
+        // right edge, not shrink.
+        let poly = Polygon::new(vec![
+            Point2D::new(0.0, 0.0),
+            Point2D::new(24.0, 0.0),
+            Point2D::new(24.0, 24.0),
+            Point2D::new(0.0, 24.0),
+        ])
+        .unwrap();
+        let obstacle = Polygon::new(vec![
+            Point2D::new(0.0, 12.0),
+            Point2D::new(5.875, 12.0),
+            Point2D::new(5.875, 18.0),
+            Point2D::new(0.0, 18.0),
+        ])
+        .unwrap();
+        let r = Rect::new(6.0, 0.0, 18.0, 24.0);
+        let snapped = snap_rect_to_polygon_and_obstacles(r, &poly, &[obstacle], 0.25);
+        assert!(
+            snapped.x >= 5.875 && snapped.x <= 5.875 + 1e-3,
+            "snapped.x={} should snap left to obstacle's right edge 5.875",
+            snapped.x
+        );
+        let right = snapped.x + snapped.width;
+        assert!((right - 24.0).abs() < 1e-9);
     }
 
     #[test]

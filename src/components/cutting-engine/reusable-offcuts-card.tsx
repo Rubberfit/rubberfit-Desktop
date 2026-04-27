@@ -7,6 +7,7 @@ import { useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import type { LayoutModel } from "./layout-model"
 import { buildTaggedReusableOffcuts } from "./reusable-offcut-tags"
+import { formatInches } from "./format-inches"
 
 const AMBER_BG = "#fef3c7"
 const AMBER_LINE = "rgba(245, 158, 11, 0.55)"
@@ -41,7 +42,7 @@ export function ReusableOffcutsCard({ layouts }: { layouts: LayoutModel[] }) {
                 {t.tag}
               </span>
               <span className="text-foreground">
-                {`${fmt(t.region.width)}" × ${fmt(t.region.height)}"`}
+                {`${formatInches(t.region.width)}" × ${formatInches(t.region.height)}"`}
               </span>
               <span>·</span>
               <span>{t.areaSqFt.toFixed(2)} ft²</span>
@@ -134,7 +135,7 @@ function OffcutTile({
         </svg>
       </div>
       <span className="text-xs font-medium text-foreground">
-        {`${fmt(widthIn)}" × ${fmt(heightIn)}"`}
+        {`${formatInches(widthIn)}" × ${formatInches(heightIn)}"`}
       </span>
       <span className="text-[11px] text-muted-foreground">
         {areaSqFt.toFixed(2)} ft² · Sheet {sourceSheetNumber}
@@ -143,7 +144,3 @@ function OffcutTile({
   )
 }
 
-function fmt(n: number): string {
-  if (Number.isInteger(n)) return String(n)
-  return n.toFixed(2).replace(/\.?0+$/, "")
-}

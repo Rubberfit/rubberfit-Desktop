@@ -12,6 +12,7 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import type { LayoutModel, LayoutRegion, PlacedPart, RenderShape } from "./layout-model"
 import type { SimpleCutMetrics } from "./nesting-visualizer-types"
+import { formatInches } from "./format-inches"
 
 // ── Display constants ─────────────────────────────────────────────────────
 
@@ -1503,10 +1504,8 @@ function ZoomControls({
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function formatInches(n: number): string {
-  // Trim trailing .0 for whole inches, keep one decimal otherwise.
-  return Number.isInteger(n) ? n.toString() : n.toFixed(1)
-}
+// formatInches now lives in ./format-inches.ts so the visualizer, the
+// Reusable Offcuts card, and the PDF report share one rounding rule.
 
 // Re-export the RenderShape union so consumers that read the source
 // from this module find it next to LayoutVisualizer.

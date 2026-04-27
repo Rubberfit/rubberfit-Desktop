@@ -8,6 +8,7 @@ import type { StockConfig } from "./stock-preview-configurator"
 import { PART_OPTIONS } from "./preset-template-data"
 import type { LayoutModel, PlacedPart, LayoutRegion } from "./layout-model"
 import { buildTaggedReusableOffcuts } from "./reusable-offcut-tags"
+import { formatInches } from "./format-inches"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -524,11 +525,6 @@ function addReusableOffcuts(doc: jsPDF, layouts: LayoutModel[], y: number): numb
 
   y += 4
   return y
-}
-
-function formatInches(n: number): string {
-  if (Number.isInteger(n)) return String(n)
-  return n.toFixed(2).replace(/\.?0+$/, "")
 }
 
 function addMetrics(doc: jsPDF, data: CutPdfData, y: number): number {

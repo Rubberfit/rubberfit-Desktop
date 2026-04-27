@@ -37,6 +37,7 @@ import {
 import { buildCutPdf } from "@/components/cutting-engine/cut-history-pdf"
 import type { LayoutModel } from "@/components/cutting-engine/layout-model"
 import { usePackJob } from "@/components/cutting-engine/use-pack-job"
+import { promoteLargeOffcutsToSheets } from "@/components/cutting-engine/promote-large-offcuts"
 import { buildPart } from "@/lib/packing/buildPart"
 import type { Bin, ConePackingMode, Part } from "@/lib/packing/types"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -193,6 +194,10 @@ export function AutoNestPage() {
   // off to compare timing against the legacy probabilistic-only
   // pipeline. Forwarded to the Rust packer as PackRequest.useWarmStart.
   const [useWarmStart, setUseWarmStart] = useState(true)
+  // Issue #23: hoist large reusable offcuts (>=40% of sheet area) into
+  // their own rendered sheets so the leftover stock reads as a discrete
+  // piece. Pure presentation transform; flipping doesn't re-pack.
+  const [promoteLargeOffcuts, setPromoteLargeOffcuts] = useState(true)
   const { status: packStatus, requestPack, invalidate } = usePackGate()
 
   const selectedTemplates = useMemo(
@@ -364,6 +369,13 @@ export function AutoNestPage() {
   // PDF export consumes layouts. usePackJob owns them now; mirror the
   // hook output into a non-null array so downstream code stays simple.
   const layouts = useMemo<LayoutModel[]>(() => packLayouts ?? [], [packLayouts])
+  // Visualization transform: optionally hoist large reusable offcuts
+  // into their own synthetic sheets. Applied here (not inside
+  // usePackJob) so toggling doesn't trigger a re-pack.
+  const visualizedLayouts = useMemo<LayoutModel[]>(
+    () => (promoteLargeOffcuts ? promoteLargeOffcutsToSheets(layouts) : layouts),
+    [layouts, promoteLargeOffcuts]
+  )
 
   // Pack-gate invalidation. Whenever any input that feeds the packer
   // changes, drop the gate back to `idle` and clear the prior layout's
@@ -673,6 +685,16 @@ export function AutoNestPage() {
                     />
                     Rect warm-start
                   </label>
+                  <label
+                    className="flex items-center gap-2 text-xs text-muted-foreground"
+                    title="Promote any reusable offcut at least 40% of the sheet's area into its own card so the leftover stock is easier to read."
+                  >
+                    <Checkbox
+                      checked={promoteLargeOffcuts}
+                      onCheckedChange={(v) => setPromoteLargeOffcuts(v === true)}
+                    />
+                    Hoist large offcuts
+                  </label>
                   {cutMetrics !== null && cutMetrics.partsCompleted > 0 && !autoBoostPending && (
                     <Button size="sm" onClick={handleExportPdf} disabled={isExporting}>
                       <FileDown className="mr-1.5 h-4 w-4" />
@@ -690,7 +712,7 @@ export function AutoNestPage() {
             <CardContent>
               {packStatus === "done" ? (
                 <LayoutVisualizer
-                  layouts={packLayouts}
+                  layouts={visualizedLayouts}
                   defaultStockWidth={stock.width}
                   defaultStockLength={stock.length}
                   isPacking={isPacking}

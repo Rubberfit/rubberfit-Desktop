@@ -483,11 +483,7 @@ function partDimensionLabel(part: PlacedPart): string {
       }
       break
     case "sector":
-      if (
-        part.innerRadius != null &&
-        part.outerRadius != null &&
-        part.arcDegrees != null
-      ) {
+      if (part.innerRadius != null && part.outerRadius != null && part.arcDegrees != null) {
         return `Cone R${formatInches(part.innerRadius)}-${formatInches(part.outerRadius)}" · ${formatInches(part.arcDegrees)}°`
       }
       break
@@ -613,10 +609,7 @@ function EmptySheet({
   const layout = computeSheetLayout(sheetWidth, sheetLength, viewWidth, viewHeight)
   const stockId = `stock-${patternSeed}`
   return (
-    <svg
-      viewBox={`0 0 ${viewWidth} ${viewHeight}`}
-      className="mx-auto block w-full max-w-6xl"
-    >
+    <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} className="mx-auto block w-full max-w-6xl">
       <PatternDefs patternSeed={patternSeed} />
       <SheetTitle width={sheetWidth} length={sheetLength} viewWidth={viewWidth} />
       <rect

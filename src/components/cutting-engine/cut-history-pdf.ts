@@ -7,6 +7,9 @@ import type { PartTemplate } from "./PresetDimensionSelector"
 import type { StockConfig } from "./stock-preview-configurator"
 import { PART_OPTIONS } from "./preset-template-data"
 import type { LayoutModel, PlacedPart, LayoutRegion } from "./layout-model"
+import { buildTaggedReusableOffcuts } from "./reusable-offcut-tags"
+import { formatInches } from "./format-inches"
+import { partLabelCenter } from "./part-label"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -380,11 +383,11 @@ function drawPart(
   const py = oy + part.y * scale
   const pw = part.width * scale
   const ph = part.height * scale
-  const cx = px + pw / 2
-  const cy = py + ph / 2
 
   if (part.renderShape === "circle" && part.diameter != null) {
     const r = (part.diameter / 2) * scale
+    const cx = px + pw / 2
+    const cy = py + ph / 2
     doc.ellipse(cx, cy, r, r, "FD")
   } else if (part.polygon && part.polygon.length >= 3) {
     drawPolygon(doc, part.polygon, ox, oy, scale, "FD")
@@ -392,12 +395,20 @@ function drawPart(
     doc.rect(px, py, pw, ph, "FD")
   }
 
-  // Label
-  const labelFontPt = Math.max(5, Math.min(10, Math.min(pw, ph) / 3))
+  // Label position: polygon centroid for non-rect shapes so the tag
+  // sits inside the actual silhouette. The bbox centre — which the
+  // PDF used to use — falls outside concave parts (e.g. inside the
+  // 150° annular sector's inner-arc hole), pushing the tag off the
+  // shape entirely.
+  const center = partLabelCenter(part)
+  const labelX = ox + center.x * scale
+  const labelY = oy + center.y * scale
+  const labelMinDim = center.minDim * scale
+  const labelFontPt = Math.max(5, Math.min(10, labelMinDim / 3))
   doc.setFontSize(labelFontPt)
   doc.setTextColor(255, 255, 255)
   doc.setFont("helvetica", "bold")
-  doc.text(part.label, cx, cy + labelFontPt / 4, { align: "center" })
+  doc.text(part.label, labelX, labelY + labelFontPt / 4, { align: "center" })
 }
 
 function drawPolygon(
@@ -471,6 +482,60 @@ async function addDiagrams(doc: jsPDF, svgElements: SVGSVGElement[], y: number):
   return y
 }
 
+function addReusableOffcuts(doc: jsPDF, layouts: LayoutModel[], y: number): number {
+  const tagged = buildTaggedReusableOffcuts(layouts)
+  if (tagged.length === 0) return y
+
+  const headerH = 6
+  const rowH = 5.5
+  const needed = 12 + headerH + tagged.length * rowH
+  y = checkNewPage(doc, y, needed)
+
+  doc.setFontSize(11)
+  doc.setTextColor(...GRAY_900)
+  doc.setFont("helvetica", "bold")
+  doc.text("Reusable Offcuts", MARGIN, y)
+  y += 6
+
+  doc.setFillColor(...BRAND)
+  doc.rect(MARGIN, y - 3.5, CONTENT_W, headerH, "F")
+  doc.setFontSize(8)
+  doc.setTextColor(...WHITE)
+  doc.setFont("helvetica", "bold")
+  const colTagX = MARGIN + 3
+  const colDimsX = MARGIN + 25
+  const colAreaX = MARGIN + 90
+  const colSourceX = MARGIN + 130
+  doc.text("TAG", colTagX, y)
+  doc.text("DIMENSIONS", colDimsX, y)
+  doc.text("AREA", colAreaX, y)
+  doc.text("SOURCE SHEET", colSourceX, y)
+  y += 5
+
+  doc.setFontSize(9)
+  for (let i = 0; i < tagged.length; i++) {
+    y = checkNewPage(doc, y, rowH)
+    if (i % 2 === 0) {
+      doc.setFillColor(...GRAY_50)
+      doc.rect(MARGIN, y - 3.5, CONTENT_W, 5.5, "F")
+    }
+    const t = tagged[i]
+    doc.setTextColor(...OFFCUT_STROKE_RGB)
+    doc.setFont("helvetica", "bold")
+    doc.text(t.tag, colTagX, y)
+    doc.setTextColor(...GRAY_900)
+    doc.setFont("helvetica", "normal")
+    doc.text(`${formatInches(t.region.width)}" × ${formatInches(t.region.height)}"`, colDimsX, y)
+    doc.text(`${t.areaSqFt.toFixed(2)} sq ft`, colAreaX, y)
+    doc.setTextColor(...GRAY_700)
+    doc.text(`Sheet ${t.sourceSheetNumber}`, colSourceX, y)
+    y += rowH
+  }
+
+  y += 4
+  return y
+}
+
 function addMetrics(doc: jsPDF, data: CutPdfData, y: number): number {
   y = checkNewPage(doc, y, 50)
   doc.setFontSize(11)
@@ -512,58 +577,6 @@ function addMetrics(doc: jsPDF, data: CutPdfData, y: number): number {
     doc.setTextColor(...GRAY_900)
     doc.setFont("helvetica", "bold")
     doc.text(metrics[i][1], MARGIN + CONTENT_W / 2, y)
-    y += 5.5
-  }
-
-  y += 4
-  return y
-}
-
-function addAdhesives(doc: jsPDF, data: CutPdfData, y: number): number {
-  if (data.materialUsedSqFt <= 0) return y
-  y = checkNewPage(doc, y, 35)
-
-  doc.setFontSize(11)
-  doc.setTextColor(...GRAY_900)
-  doc.setFont("helvetica", "bold")
-  doc.text("Adhesive Requirements", MARGIN, y)
-  y += 6
-
-  const pr200 = data.materialUsedSqFt / 380
-  const sc4000 = data.materialUsedSqFt / 47
-  const e40 = sc4000 * 4
-  const adhesives = [
-    ["PR200 Primer", `${pr200.toFixed(2)} gal`, "1 gal / 380 sq ft"],
-    ["SC4000 Glue", `${sc4000.toFixed(2)} gal`, "1 gal / 47 sq ft"],
-    ["E40 Hardener", `${e40.toFixed(2)} units`, "4 units / gal SC4000"],
-  ]
-
-  doc.setFillColor(...BRAND)
-  doc.rect(MARGIN, y - 3.5, CONTENT_W, 6, "F")
-  doc.setFontSize(8)
-  doc.setTextColor(...WHITE)
-  doc.setFont("helvetica", "bold")
-  doc.text("ADHESIVE", MARGIN + 3, y)
-  doc.text("AMOUNT", MARGIN + 65, y)
-  doc.text("COVERAGE RATE", MARGIN + 115, y)
-  y += 5
-
-  doc.setFontSize(9)
-  for (let i = 0; i < adhesives.length; i++) {
-    y = checkNewPage(doc, y, 6)
-    if (i % 2 === 0) {
-      doc.setFillColor(...GRAY_50)
-      doc.rect(MARGIN, y - 3.5, CONTENT_W, 5.5, "F")
-    }
-    doc.setTextColor(...GRAY_700)
-    doc.setFont("helvetica", "normal")
-    doc.text(adhesives[i][0], MARGIN + 3, y)
-    doc.setTextColor(...GRAY_900)
-    doc.setFont("helvetica", "bold")
-    doc.text(adhesives[i][1], MARGIN + 65, y)
-    doc.setTextColor(...GRAY_500)
-    doc.setFont("helvetica", "normal")
-    doc.text(adhesives[i][2], MARGIN + 115, y)
     y += 5.5
   }
 
@@ -674,8 +687,8 @@ export async function generateCutPdf(args: {
   } else {
     y = await addDiagrams(doc, svgElements, y)
   }
-  y = addMetrics(doc, data, y)
-  addAdhesives(doc, data, y)
+  y = addReusableOffcuts(doc, layouts, y)
+  addMetrics(doc, data, y)
   addFooter(doc)
 
   return doc.output("blob")

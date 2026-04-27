@@ -12,15 +12,40 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import type { LayoutModel, LayoutRegion, PlacedPart, RenderShape } from "./layout-model"
 import type { SimpleCutMetrics } from "./nesting-visualizer-types"
+import { formatInches } from "./format-inches"
+import { partLabelCenter } from "./part-label"
 
 // ── Display constants ─────────────────────────────────────────────────────
 
-const VIEW_WIDTH = 980
-const VIEW_HEIGHT = 560
+// Floor for the SVG viewBox. Small sheets get this size so the
+// title / dimension labels have enough room; bigger sheets grow the
+// viewBox so the per-inch SVG-pixel density stays at MIN_PX_PER_INCH.
+// Without the per-sheet sizing a 120×96 sheet got ~4.9 screen px/inch
+// on the height axis (the fixed 1.75 aspect was wider than the sheet,
+// so the sheet was vertically pinned and laterally wasted half the
+// display width).
+const MIN_VIEW_WIDTH = 980
+const MIN_VIEW_HEIGHT = 560
+const MIN_PX_PER_INCH = 8
 const PAD_LEFT = 74
 const PAD_RIGHT = 112
 const PAD_TOP = 82
 const PAD_BOTTOM = 80
+
+function computeViewBoxDims(
+  sheetWidth: number,
+  sheetLength: number
+): { viewWidth: number; viewHeight: number } {
+  const viewWidth = Math.max(
+    MIN_VIEW_WIDTH,
+    Math.ceil(sheetWidth * MIN_PX_PER_INCH + PAD_LEFT + PAD_RIGHT)
+  )
+  const viewHeight = Math.max(
+    MIN_VIEW_HEIGHT,
+    Math.ceil(sheetLength * MIN_PX_PER_INCH + PAD_TOP + PAD_BOTTOM)
+  )
+  return { viewWidth, viewHeight }
+}
 
 // ── Public API ────────────────────────────────────────────────────────────
 
@@ -83,6 +108,13 @@ export interface LayoutVisualizerProps {
   onLayoutChange?: (layouts: LayoutModel[]) => void
   /** Diagnostic overlays. See {@link DebugOverlayOptions}. */
   debugOptions?: DebugOverlayOptions
+  /**
+   * When set, each sheet's wrapping div gets `id="${sheetIdPrefix}-${i}"`
+   * so external navigation (e.g. the global sidebar's sheet legend) can
+   * `scrollIntoView` to a specific sheet. Omit when the visualizer is
+   * embedded somewhere navigation isn't needed.
+   */
+  sheetIdPrefix?: string
 }
 
 export default function LayoutVisualizer({
@@ -94,6 +126,7 @@ export default function LayoutVisualizer({
   onMetricsChange,
   onLayoutChange,
   debugOptions,
+  sheetIdPrefix,
 }: LayoutVisualizerProps) {
   const patternSeed = useId().replace(/:/g, "")
   const sheets = layouts && layouts.length > 0 ? layouts : null
@@ -143,7 +176,11 @@ export default function LayoutVisualizer({
 
   const isMulti = sheets.length > 1
   const totals = buildTotals(sheets)
+  // "Sheet N of M" headers count real packed bins only; promoted
+  // reusable offcuts get their own header style and don't bump M.
+  const standardTotal = sheets.filter((s) => s.sheetKind !== "offcut-extract").length
 
+  let standardCounter = 0
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
       <SheetHeader
@@ -152,7 +189,7 @@ export default function LayoutVisualizer({
         totals={totals}
         isPacking={isPacking}
         packError={packError}
-        sheetCount={sheets.length}
+        sheetCount={standardTotal}
       />
 
       <Legend layouts={sheets} />
@@ -162,16 +199,23 @@ export default function LayoutVisualizer({
           isMulti ? "flex flex-col gap-6" : "overflow-x-auto"
         }`}
       >
-        {sheets.map((layout, i) => (
-          <SheetSvg
-            key={`sheet-${i}`}
-            layout={layout}
-            sheetIndex={i}
-            totalSheets={sheets.length}
-            patternSeed={`${patternSeed}-s${i}`}
-            debugOptions={debugOptions}
-          />
-        ))}
+        {sheets.map((layout, i) => {
+          const isExtract = layout.sheetKind === "offcut-extract"
+          const standardNumber = isExtract ? undefined : ++standardCounter
+          const wrapperId = sheetIdPrefix ? `${sheetIdPrefix}-${i}` : undefined
+          return (
+            <div key={`sheet-${i}`} id={wrapperId} style={{ scrollMarginTop: "1rem" }}>
+              <SheetSvg
+                layout={layout}
+                totalSheets={sheets.length}
+                standardNumber={standardNumber}
+                standardTotal={standardTotal}
+                patternSeed={`${patternSeed}-s${i}`}
+                debugOptions={debugOptions}
+              />
+            </div>
+          )
+        })}
       </div>
 
       <SheetMetricsFooter totals={totals} />
@@ -189,6 +233,7 @@ interface Totals {
   partsPlaced: number
   partsOverflow: number
   fabScore: number
+  reusableOffcutCount: number
 }
 
 function buildTotals(sheets: LayoutModel[]): Totals {
@@ -199,17 +244,39 @@ function buildTotals(sheets: LayoutModel[]): Totals {
   let partsPlaced = 0
   let partsOverflow = 0
   let weightedFab = 0
+  let standardCount = 0
+  let reusableOffcutCount = 0
   for (const s of sheets) {
+    const isExtract = s.sheetKind === "offcut-extract"
     usedSqFt += s.usedAreaSqFt
     reusableSqFt += s.reusableAreaSqFt
     scrapSqFt += s.scrapAreaSqFt
-    stockSqFt += (s.sheetWidth * s.sheetLength) / 144
+    if (!isExtract) {
+      // Synthetic offcut sheets are derived from a parent's stock —
+      // counting their area would double-count the underlying material.
+      stockSqFt += (s.sheetWidth * s.sheetLength) / 144
+      weightedFab += s.fabScore
+      standardCount++
+    }
+    // Each reusable offcut piece counts once: promotion removes the
+    // piece from its parent's offcuts[] and re-adds it as the single
+    // entry on the synthetic, so summing across all sheets is the
+    // distinct-piece count regardless of promotion state.
+    reusableOffcutCount += s.offcuts.length
     partsPlaced += s.placedCount
     partsOverflow += s.overflowCount
-    weightedFab += s.fabScore
   }
-  const fabScore = sheets.length > 0 ? weightedFab / sheets.length : 0
-  return { usedSqFt, reusableSqFt, scrapSqFt, stockSqFt, partsPlaced, partsOverflow, fabScore }
+  const fabScore = standardCount > 0 ? weightedFab / standardCount : 0
+  return {
+    usedSqFt,
+    reusableSqFt,
+    scrapSqFt,
+    stockSqFt,
+    partsPlaced,
+    partsOverflow,
+    fabScore,
+    reusableOffcutCount,
+  }
 }
 
 function buildMetrics(sheets: LayoutModel[]): SimpleCutMetrics {
@@ -234,9 +301,10 @@ function buildMetrics(sheets: LayoutModel[]): SimpleCutMetrics {
 
 function summaryLine(sheets: LayoutModel[]): string {
   const t = buildTotals(sheets)
-  const sheetWord = sheets.length === 1 ? "sheet" : "sheets"
+  const standardCount = sheets.filter((s) => s.sheetKind !== "offcut-extract").length
+  const sheetWord = standardCount === 1 ? "sheet" : "sheets"
   const overflowSuffix = t.partsOverflow > 0 ? `, ${t.partsOverflow} overflow` : ""
-  return `${sheets.length} ${sheetWord}, ${t.partsPlaced} parts placed${overflowSuffix}`
+  return `${standardCount} ${sheetWord}, ${t.partsPlaced} parts placed${overflowSuffix}`
 }
 
 function SheetHeader({
@@ -273,6 +341,12 @@ function SheetHeader({
             {totals.reusableSqFt > 0 && (
               <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 font-medium text-amber-600">
                 Reusable offcut: {reusablePct.toFixed(1)}%
+              </span>
+            )}
+            {totals.reusableOffcutCount > 0 && (
+              <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 font-medium text-amber-600">
+                {totals.reusableOffcutCount} reusable piece
+                {totals.reusableOffcutCount === 1 ? "" : "s"}
               </span>
             )}
             <span className="rounded-full border border-red-500/40 bg-red-500/10 px-3 py-1 font-medium text-red-600">
@@ -314,34 +388,112 @@ function SheetHeader({
 // ── Legend ────────────────────────────────────────────────────────────────
 
 function Legend({ layouts }: { layouts: LayoutModel[] }) {
-  // Distinct (label, partNumber) pairs across all sheets.
+  // Distinct (tag, descriptor) pairs across all sheets. The descriptor
+  // is the part's *dimensions* — uploaded parts no longer carry a
+  // human-readable partNumber, and falling through to shapeId leaks
+  // internal IDs like "uploaded-1733000000000-0" into the legend.
+  // Showing dimensions matches the Reusable Offcuts card and the
+  // upload-review dialog and is the most useful identifier for an
+  // operator picking parts off the layout.
   const seen = new Map<string, string>()
   for (const layout of layouts) {
     for (const part of layout.parts) {
       const key = part.label
       if (!seen.has(key)) {
-        seen.set(key, part.partNumber ?? part.shapeId)
+        seen.set(key, partDimensionLabel(part))
       }
     }
   }
+  // Hooks must be unconditional, so the empty-list short-circuit lives
+  // below the state hook.
+  const [open, setOpen] = useState(true)
   if (seen.size === 0) return null
+  // Sort by tag length first, then alphabetical, so A..Z come before
+  // AA..ZZ instead of "A, AA, AB, ..., AZ, B" — matches the order
+  // the auto-tagger generates them.
+  const entries = [...seen.entries()].sort(
+    (a, b) => a[0].length - b[0].length || a[0].localeCompare(b[0])
+  )
   return (
-    <div className="flex flex-wrap gap-3 border-b border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
-      {[...seen.entries()]
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([tag, label]) => (
-          <span key={tag} className="flex items-center gap-1.5">
-            <span
-              className="inline-flex h-5 w-5 items-center justify-center rounded border text-[10px] font-bold leading-none shadow-sm"
-              style={tagPillStyle(tag)}
-            >
-              {tag}
-            </span>
-            <span>{label}</span>
-          </span>
-        ))}
+    <div className="border-b border-border bg-muted/30 text-xs text-muted-foreground">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-4 py-2 text-left font-medium hover:bg-muted/60"
+        aria-expanded={open}
+      >
+        <ChevronGlyph open={open} />
+        <span>Cut Legend</span>
+        <span className="text-muted-foreground/70">
+          ({entries.length} {entries.length === 1 ? "tag" : "tags"})
+        </span>
+      </button>
+      {open && (
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 px-4 pb-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+          {entries.map(([tag, label]) => (
+            <div key={tag} className="flex items-center gap-2 overflow-hidden">
+              <span
+                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] font-bold leading-none shadow-sm"
+                style={tagPillStyle(tag)}
+              >
+                {tag}
+              </span>
+              <span className="truncate text-foreground" title={label}>
+                {label}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
+}
+
+function ChevronGlyph({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      aria-hidden="true"
+      className={`shrink-0 transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+    >
+      <path d="M3 1 L7 5 L3 9" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  )
+}
+
+/**
+ * Human-readable dimension label for a placed part. Mirrors the
+ * label format the upload-review dialog and the preset template grid
+ * use (width × length for rects, Ø for circles, top/bottom for
+ * trapezoids, etc.). Falls back to the placement bbox when the
+ * shape-specific fields aren't populated.
+ */
+function partDimensionLabel(part: PlacedPart): string {
+  switch (part.renderShape) {
+    case "circle":
+      if (part.diameter != null && part.diameter > 0) {
+        return `Ø${formatInches(part.diameter)}"`
+      }
+      break
+    case "trapezoid":
+      if (part.topWidth != null && part.bottomWidth != null) {
+        return `${formatInches(part.topWidth)}/${formatInches(part.bottomWidth)}" × ${formatInches(part.height)}"`
+      }
+      break
+    case "sector":
+      if (part.innerRadius != null && part.outerRadius != null && part.arcDegrees != null) {
+        return `Cone R${formatInches(part.innerRadius)}-${formatInches(part.outerRadius)}" · ${formatInches(part.arcDegrees)}°`
+      }
+      break
+    case "ring":
+      if (part.innerRadius != null && part.outerRadius != null) {
+        return `Ring ${formatInches(part.innerRadius)}-${formatInches(part.outerRadius)}"`
+      }
+      break
+  }
+  return `${formatInches(part.width)}" × ${formatInches(part.height)}"`
 }
 
 const TAG_PILL_COLORS = [
@@ -453,12 +605,13 @@ function EmptySheet({
   sheetLength: number
   patternSeed: string
 }) {
-  const layout = computeSheetLayout(sheetWidth, sheetLength)
+  const { viewWidth, viewHeight } = computeViewBoxDims(sheetWidth, sheetLength)
+  const layout = computeSheetLayout(sheetWidth, sheetLength, viewWidth, viewHeight)
   const stockId = `stock-${patternSeed}`
   return (
-    <svg viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`} className="mx-auto block w-full max-w-6xl">
+    <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} className="mx-auto block w-full max-w-6xl">
       <PatternDefs patternSeed={patternSeed} />
-      <SheetTitle width={sheetWidth} length={sheetLength} />
+      <SheetTitle width={sheetWidth} length={sheetLength} viewWidth={viewWidth} />
       <rect
         x={layout.surfaceX}
         y={layout.surfaceY}
@@ -483,9 +636,14 @@ interface SheetLayout {
   surfacePxH: number
 }
 
-function computeSheetLayout(sheetWidth: number, sheetLength: number): SheetLayout {
-  const drawWidth = VIEW_WIDTH - PAD_LEFT - PAD_RIGHT
-  const drawHeight = VIEW_HEIGHT - PAD_TOP - PAD_BOTTOM
+function computeSheetLayout(
+  sheetWidth: number,
+  sheetLength: number,
+  viewWidth: number,
+  viewHeight: number
+): SheetLayout {
+  const drawWidth = viewWidth - PAD_LEFT - PAD_RIGHT
+  const drawHeight = viewHeight - PAD_TOP - PAD_BOTTOM
   const scale = Math.min(drawWidth / Math.max(sheetWidth, 1), drawHeight / Math.max(sheetLength, 1))
   const surfacePxW = sheetWidth * scale
   const surfacePxH = sheetLength * scale
@@ -496,25 +654,42 @@ function computeSheetLayout(sheetWidth: number, sheetLength: number): SheetLayou
 
 function SheetSvg({
   layout: model,
-  sheetIndex,
   totalSheets,
+  standardNumber,
+  standardTotal,
   patternSeed,
   debugOptions,
 }: {
   layout: LayoutModel
-  sheetIndex: number
   totalSheets: number
+  /** 1-indexed position within the *standard* (non-promoted) sheets, or undefined for promoted offcut sheets. */
+  standardNumber?: number
+  /** Total count of standard sheets (excludes promoted offcut sheets). */
+  standardTotal?: number
   patternSeed: string
   debugOptions?: DebugOverlayOptions
 }) {
-  const layout = useMemo(
-    () => computeSheetLayout(model.sheetWidth, model.sheetLength),
+  const { viewWidth, viewHeight } = useMemo(
+    () => computeViewBoxDims(model.sheetWidth, model.sheetLength),
     [model.sheetWidth, model.sheetLength]
+  )
+  const layout = useMemo(
+    () => computeSheetLayout(model.sheetWidth, model.sheetLength, viewWidth, viewHeight),
+    [model.sheetWidth, model.sheetLength, viewWidth, viewHeight]
   )
   const stockId = `stock-${patternSeed}`
   const offcutId = `offcut-${patternSeed}`
   const wasteId = `waste-${patternSeed}`
   const clipId = `stock-clip-${patternSeed}`
+  // Pan/zoom math + label centering reads these via refs so we don't
+  // close over a stale viewbox if a fresh pack swaps sheet dims under
+  // an existing svg ref.
+  const viewWidthRef = useRef(viewWidth)
+  const viewHeightRef = useRef(viewHeight)
+  useEffect(() => {
+    viewWidthRef.current = viewWidth
+    viewHeightRef.current = viewHeight
+  }, [viewWidth, viewHeight])
 
   // ── Zoom + pan ──
   const [zoom, setZoom] = useState(1)
@@ -545,17 +720,19 @@ function SheetSvg({
         if (next === prev) return prev
         const cur = panRef.current
         const rect = svg.getBoundingClientRect()
-        const vbW = VIEW_WIDTH / prev
-        const vbH = VIEW_HEIGHT / prev
+        const vw = viewWidthRef.current
+        const vh = viewHeightRef.current
+        const vbW = vw / prev
+        const vbH = vh / prev
         const fx = (e.clientX - rect.left) / rect.width
         const fy = (e.clientY - rect.top) / rect.height
         const sx = cur.x + fx * vbW
         const sy = cur.y + fy * vbH
-        const newVbW = VIEW_WIDTH / next
-        const newVbH = VIEW_HEIGHT / next
+        const newVbW = vw / next
+        const newVbH = vh / next
         setPan({
-          x: Math.max(0, Math.min(sx - fx * newVbW, VIEW_WIDTH - newVbW)),
-          y: Math.max(0, Math.min(sy - fy * newVbH, VIEW_HEIGHT - newVbH)),
+          x: Math.max(0, Math.min(sx - fx * newVbW, vw - newVbW)),
+          y: Math.max(0, Math.min(sy - fy * newVbH, vh - newVbH)),
         })
         return next
       })
@@ -579,22 +756,25 @@ function SheetSvg({
     const svg = svgRef.current
     if (!svg) return
     const rect = svg.getBoundingClientRect()
-    const vbW = VIEW_WIDTH / zoomRef.current
-    const vbH = VIEW_HEIGHT / zoomRef.current
+    const vw = viewWidthRef.current
+    const vh = viewHeightRef.current
+    const vbW = vw / zoomRef.current
+    const vbH = vh / zoomRef.current
     const dx = ((e.clientX - dragRef.current.startX) / rect.width) * vbW
     const dy = ((e.clientY - dragRef.current.startY) / rect.height) * vbH
     setPan({
-      x: Math.max(0, Math.min(dragRef.current.startPanX - dx, VIEW_WIDTH - vbW)),
-      y: Math.max(0, Math.min(dragRef.current.startPanY - dy, VIEW_HEIGHT - vbH)),
+      x: Math.max(0, Math.min(dragRef.current.startPanX - dx, vw - vbW)),
+      y: Math.max(0, Math.min(dragRef.current.startPanY - dy, vh - vbH)),
     })
   }, [])
   const onPointerUp = useCallback(() => {
     dragRef.current = null
   }, [])
 
-  const vbW = VIEW_WIDTH / zoom
-  const vbH = VIEW_HEIGHT / zoom
+  const vbW = viewWidth / zoom
+  const vbH = viewHeight / zoom
   const isMulti = totalSheets > 1
+  const isExtract = model.sheetKind === "offcut-extract"
 
   return (
     <div className="group relative">
@@ -606,10 +786,19 @@ function SheetSvg({
           setPan({ x: 0, y: 0 })
         }}
       />
-      {isMulti && (
-        <div className="mb-1 text-center text-xs font-medium text-muted-foreground">
-          Sheet {sheetIndex + 1} of {totalSheets}
+      {isExtract ? (
+        <div className="mb-1 text-center text-xs font-medium text-amber-700">
+          {`Reusable Offcut from Sheet ${(model.parentSheetIndex ?? 0) + 1} `}
+          {`(${formatInches(model.sheetWidth)}" × ${formatInches(model.sheetLength)}")`}
         </div>
+      ) : (
+        isMulti &&
+        standardNumber !== undefined &&
+        standardTotal !== undefined && (
+          <div className="mb-1 text-center text-xs font-medium text-muted-foreground">
+            Sheet {standardNumber} of {standardTotal}
+          </div>
+        )
       )}
       <svg
         ref={svgRef}
@@ -622,7 +811,12 @@ function SheetSvg({
         onPointerLeave={onPointerUp}
       >
         <PatternDefs patternSeed={patternSeed} />
-        <SheetTitle width={model.sheetWidth} length={model.sheetLength} />
+        <SheetTitle
+          width={model.sheetWidth}
+          length={model.sheetLength}
+          viewWidth={viewWidth}
+          variant={isExtract ? "offcut-extract" : "stock"}
+        />
         <clipPath id={clipId}>
           <rect
             x={layout.surfaceX}
@@ -636,40 +830,50 @@ function SheetSvg({
           y={layout.surfaceY}
           width={layout.surfacePxW}
           height={layout.surfacePxH}
-          fill={`url(#${stockId})`}
-          className="stroke-border"
+          fill={isExtract ? `url(#${offcutId})` : `url(#${stockId})`}
+          stroke={isExtract ? OFFCUT_OUTLINE : undefined}
           strokeWidth="2"
+          strokeDasharray={isExtract ? "6 4" : undefined}
+          className={isExtract ? undefined : "stroke-border"}
         />
         <g clipPath={`url(#${clipId})`}>
-          {/* Scrap layer — combines every `BinResult.freeRegions`
-              polygon (one outer + one hole-reversed per placed part)
-              into a single evenodd path, with reusable amber rects
-              added as cutout subpaths. evenodd correctly resolves the
-              shape: the outer paints the bin red, hole-reverseds cancel
-              cone interiors (point in cone counted twice → not filled),
-              offcut cutouts cancel reusable rect areas (point in offcut
-              flips count → not filled). The chord-vs-arc gap, sub-cell
-              residual, and post-iteration leftover all paint as red,
-              matching the displayed `scrapAreaSqFt` total. */}
-          <ScrapLayer
-            regions={model.scrap}
-            offcuts={model.offcuts}
-            fill={`url(#${wasteId})`}
-            layout={layout}
-          />
-          {/* Reusable offcuts (amber). Each gets its W × L printed at
-              the centre so the operator can size the leftover at a glance. */}
-          {model.offcuts.map((region, i) => (
-            <React.Fragment key={`offcut-${i}`}>
-              <RegionShape
-                region={region}
-                fill={`url(#${offcutId})`}
-                stroke={OFFCUT_OUTLINE}
+          {/* Synthetic offcut-extract sheets paint the amber pattern +
+              dashed border on the outer rect above; skip the per-region
+              offcut/scrap rendering to avoid stacking a solid amber
+              outline over the dashed border. */}
+          {!isExtract && (
+            <>
+              {/* Scrap layer — combines every `BinResult.freeRegions`
+                  polygon (one outer + one hole-reversed per placed part)
+                  into a single evenodd path, with reusable amber rects
+                  added as cutout subpaths. evenodd correctly resolves the
+                  shape: the outer paints the bin red, hole-reverseds cancel
+                  cone interiors (point in cone counted twice → not filled),
+                  offcut cutouts cancel reusable rect areas (point in offcut
+                  flips count → not filled). The chord-vs-arc gap, sub-cell
+                  residual, and post-iteration leftover all paint as red,
+                  matching the displayed `scrapAreaSqFt` total. */}
+              <ScrapLayer
+                regions={model.scrap}
+                offcuts={model.offcuts}
+                fill={`url(#${wasteId})`}
                 layout={layout}
               />
-              <OffcutLabel region={region} layout={layout} />
-            </React.Fragment>
-          ))}
+              {/* Reusable offcuts (amber). Each gets its W × L printed at
+                  the centre so the operator can size the leftover at a glance. */}
+              {model.offcuts.map((region, i) => (
+                <React.Fragment key={`offcut-${i}`}>
+                  <RegionShape
+                    region={region}
+                    fill={`url(#${offcutId})`}
+                    stroke={OFFCUT_OUTLINE}
+                    layout={layout}
+                  />
+                  <OffcutLabel region={region} layout={layout} />
+                </React.Fragment>
+              ))}
+            </>
+          )}
           {/* Debug overlay: inscribed Scrap-classified rects, dashed
               darker-red outline. Only rendered when the operator
               ticks "Show inscribed rects". */}
@@ -955,16 +1159,44 @@ function RegionShape({
 
 // Below this on-screen min dimension, an offcut is too small to host
 // readable text — the label is suppressed so the surface stays clean.
-const OFFCUT_LABEL_MIN_PX = 36
+// Label hides only for truly tiny rects. The 6"×24" minimum-strip
+// reusable-offcut threshold renders ~25 SVG px on the short axis at
+// the typical 120×96 sheet scale, so anything stricter than ~20 drops
+// labels off legitimate reusable pieces. Narrow strips rotate the
+// label 90° so it reads along the long axis.
+const OFFCUT_LABEL_MIN_PX = 18
+const OFFCUT_LABEL_ROTATE_RATIO = 1.7
 
 function OffcutLabel({ region, layout }: { region: LayoutRegion; layout: SheetLayout }) {
-  const minPx = Math.min(region.width, region.height) * layout.scale
+  const widthPx = region.width * layout.scale
+  const heightPx = region.height * layout.scale
+  const minPx = Math.min(widthPx, heightPx)
+  const maxPx = Math.max(widthPx, heightPx)
   if (minPx < OFFCUT_LABEL_MIN_PX) return null
+
   const cx = layout.surfaceX + (region.x + region.width / 2) * layout.scale
   const cy = layout.surfaceY + (region.y + region.height / 2) * layout.scale
-  // Same clamp shape as PartShape (10-18 px, 32% of the smaller side)
-  // so offcut and part labels share visual rhythm.
-  const fontSize = Math.max(8, Math.min(12, minPx * 0.2))
+  const text = `${formatInches(region.width)}" × ${formatInches(region.height)}"`
+  // Estimated label width at 1px font size — helvetica ~0.55 em-ratio.
+  // Used to pick a font size that actually fits along the chosen axis.
+  const labelEmWidth = text.length * 0.55
+
+  // Rotate when one axis is significantly longer; the label then reads
+  // along the long axis and we size against that axis instead.
+  const isVerticalStrip = heightPx > widthPx * OFFCUT_LABEL_ROTATE_RATIO
+  const isHorizontalStrip = widthPx > heightPx * OFFCUT_LABEL_ROTATE_RATIO
+  const rotated = isVerticalStrip
+  const longAxisPx = isVerticalStrip || isHorizontalStrip ? maxPx : widthPx
+  const shortAxisPx = isVerticalStrip || isHorizontalStrip ? minPx : heightPx
+
+  // Pick the largest font size that fits within the label's available
+  // axes (long axis bounds the text length, short axis bounds the
+  // text height ~ 1.2em). Capped 7-13px for legibility.
+  const fontFromLength = (longAxisPx * 0.92) / labelEmWidth
+  const fontFromHeight = shortAxisPx / 1.4
+  const fontSize = Math.max(7, Math.min(13, Math.min(fontFromLength, fontFromHeight)))
+  const transform = rotated ? `rotate(-90 ${cx} ${cy})` : undefined
+
   return (
     <text
       x={cx}
@@ -974,9 +1206,10 @@ function OffcutLabel({ region, layout }: { region: LayoutRegion; layout: SheetLa
       fill="#000"
       fontSize={fontSize}
       fontWeight="600"
+      transform={transform}
       style={{ pointerEvents: "none", userSelect: "none" }}
     >
-      {`${formatInches(region.width)}" × ${formatInches(region.height)}"`}
+      {text}
     </text>
   )
 }
@@ -1107,63 +1340,10 @@ function partAabb(part: PlacedPart): { x: number; y: number; width: number; heig
   return { x: part.x, y: part.y, width: part.width, height: part.height }
 }
 
-/**
- * Where to anchor the part's tag label, in stock-local inches.
- *
- * Returns the polygon's area-weighted centroid when a polygon is
- * present, falling back to the placement-rect centre otherwise. The
- * centroid (vs. the bbox / hull centre) keeps the tag inside the
- * actual filled silhouette for concave parts — most importantly the
- * 150° annular sector, whose bbox centre falls in the inner-arc
- * hole. `minDim` mirrors the bbox min dimension (not a centroid-to-
- * edge distance) so font sizing stays proportional to the visual
- * footprint.
- */
-function partLabelCenter(part: PlacedPart): { x: number; y: number; minDim: number } {
-  const aabb = partAabb(part)
-  const minDim = Math.min(aabb.width, aabb.height)
-  if (part.polygon && part.polygon.length >= 3) {
-    const c = polygonCentroid(part.polygon)
-    return { x: c.x, y: c.y, minDim }
-  }
-  return { x: part.x + part.width / 2, y: part.y + part.height / 2, minDim }
-}
-
-/**
- * Area-weighted centroid of a simple polygon. CCW or CW input is
- * fine — the signed-area term cancels with the moment terms. For
- * degenerate polygons (zero signed area: collinear or duplicated
- * vertices) falls back to the vertex average so callers always get a
- * usable point.
- */
-function polygonCentroid(points: ReadonlyArray<{ x: number; y: number }>): {
-  x: number
-  y: number
-} {
-  let cx = 0
-  let cy = 0
-  let area2 = 0
-  const n = points.length
-  for (let i = 0; i < n; i++) {
-    const p0 = points[i]
-    const p1 = points[(i + 1) % n]
-    const cross = p0.x * p1.y - p1.x * p0.y
-    area2 += cross
-    cx += (p0.x + p1.x) * cross
-    cy += (p0.y + p1.y) * cross
-  }
-  if (Math.abs(area2) < 1e-9) {
-    let ax = 0
-    let ay = 0
-    for (const p of points) {
-      ax += p.x
-      ay += p.y
-    }
-    return { x: ax / n, y: ay / n }
-  }
-  const factor = 1 / (3 * area2)
-  return { x: cx * factor, y: cy * factor }
-}
+// partLabelCenter / polygonCentroid moved to ./part-label.ts so the
+// PDF exporter shares the same area-weighted-centroid placement and a
+// tag that reads inside the cone silhouette on screen does the same in
+// the printed report.
 
 function PartShape({
   part,
@@ -1312,27 +1492,42 @@ function PatternDefs({ patternSeed }: { patternSeed: string }) {
   )
 }
 
-function SheetTitle({ width, length }: { width: number; length: number }) {
+function SheetTitle({
+  width,
+  length,
+  viewWidth,
+  variant = "stock",
+}: {
+  width: number
+  length: number
+  viewWidth: number
+  variant?: "stock" | "offcut-extract"
+}) {
+  const title = variant === "offcut-extract" ? "Reusable Offcut" : "Rubber Sheet Nesting Layout"
+  const subtitle =
+    variant === "offcut-extract"
+      ? `Promoted ${formatInches(width)}" × ${formatInches(length)}" leftover`
+      : `Typical ${formatInches(width)}" × ${formatInches(length)}" stock sheet`
   return (
     <>
       <text
-        x={VIEW_WIDTH / 2}
+        x={viewWidth / 2}
         y="34"
         textAnchor="middle"
         className="fill-foreground"
         fontSize="20"
         fontWeight="700"
       >
-        Rubber Sheet Nesting Layout
+        {title}
       </text>
       <text
-        x={VIEW_WIDTH / 2}
+        x={viewWidth / 2}
         y="60"
         textAnchor="middle"
         className="fill-muted-foreground"
         fontSize="12"
       >
-        {`Typical ${formatInches(width)}" × ${formatInches(length)}" stock sheet`}
+        {subtitle}
       </text>
     </>
   )
@@ -1423,10 +1618,8 @@ function ZoomControls({
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function formatInches(n: number): string {
-  // Trim trailing .0 for whole inches, keep one decimal otherwise.
-  return Number.isInteger(n) ? n.toString() : n.toFixed(1)
-}
+// formatInches now lives in ./format-inches.ts so the visualizer, the
+// Reusable Offcuts card, and the PDF report share one rounding rule.
 
 // Re-export the RenderShape union so consumers that read the source
 // from this module find it next to LayoutVisualizer.

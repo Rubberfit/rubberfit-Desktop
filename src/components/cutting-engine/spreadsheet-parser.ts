@@ -10,18 +10,10 @@ import type {
 
 // ── Column aliases (case-insensitive, matched via `contains`) ────────
 
-const PART_ALIASES = [
-  "part number",
-  "part #",
-  "part no",
-  "part",
-  "item",
-  "description",
-  "desc",
-  "name",
-  "label",
-  "sku",
-]
+// Part-number columns from uploaded spreadsheets are intentionally
+// ignored. Real cut lists in this product carry only sizes; any
+// "Part #" / "Item" / "SKU" column is dropped at parse time so the
+// review dialog and the visualizer don't surface irrelevant labels.
 const QTY_ALIASES = ["quantity", "qty", "count", "pcs", "pieces", "ea", "amount", "amt"]
 
 // Rectangle
@@ -211,19 +203,12 @@ function extractQuantity(row: string[], qtyCol: number): number {
   return q > 0 ? q : 1
 }
 
-function extractPartNumber(row: string[], partCol: number): string | undefined {
-  if (partCol < 0) return undefined
-  const v = String(row[partCol] ?? "").trim()
-  return v ? v : undefined
-}
-
 function parseRectangleRows(rows: string[][], headerIndex: number): ExtractedRectangle[] {
   const headers = rows[headerIndex].map((x) => String(x ?? ""))
   const widthCol = findCol(headers, WIDTH_ALIASES)
   const lengthCol = findCol(headers, LENGTH_ALIASES)
   const sizeCol = widthCol < 0 || lengthCol < 0 ? findCol(headers, SIZE_ALIASES) : -1
   const qtyCol = findCol(headers, QTY_ALIASES)
-  const partCol = findCol(headers, PART_ALIASES)
 
   const out: ExtractedRectangle[] = []
   for (let i = headerIndex + 1; i < rows.length; i++) {
@@ -247,7 +232,6 @@ function parseRectangleRows(rows: string[][], headerIndex: number): ExtractedRec
       width: w,
       length: l,
       quantity: extractQuantity(row, qtyCol),
-      partNumber: extractPartNumber(row, partCol),
       confidence: 1.0,
     })
   }
@@ -265,7 +249,6 @@ function parseCylinderRows(rows: string[][], headerIndex: number): ExtractedCyli
     return findCol(headers, LENGTH_ALIASES)
   })()
   const qtyCol = findCol(headers, QTY_ALIASES)
-  const partCol = findCol(headers, PART_ALIASES)
 
   if (diaCol < 0 || heightCol < 0) return []
 
@@ -281,7 +264,6 @@ function parseCylinderRows(rows: string[][], headerIndex: number): ExtractedCyli
       diameter: d,
       height: h,
       quantity: extractQuantity(row, qtyCol),
-      partNumber: extractPartNumber(row, partCol),
       confidence: 1.0,
     })
   }
@@ -294,7 +276,6 @@ function parseConeRows(rows: string[][], headerIndex: number): ExtractedCone[] {
   const outerCol = findCol(headers, OUTER_RADIUS_ALIASES)
   const arcCol = findCol(headers, ARC_DEGREES_ALIASES)
   const qtyCol = findCol(headers, QTY_ALIASES)
-  const partCol = findCol(headers, PART_ALIASES)
 
   if (innerCol < 0 || outerCol < 0 || arcCol < 0) return []
 
@@ -313,7 +294,6 @@ function parseConeRows(rows: string[][], headerIndex: number): ExtractedCone[] {
       outerRadius: or,
       arcDegrees: arc,
       quantity: extractQuantity(row, qtyCol),
-      partNumber: extractPartNumber(row, partCol),
       confidence: 1.0,
     })
   }
@@ -326,7 +306,6 @@ function parseTrapezoidRows(rows: string[][], headerIndex: number): ExtractedTra
   const bottomCol = findCol(headers, BOTTOM_WIDTH_ALIASES)
   const heightCol = findCol(headers, HEIGHT_ALIASES)
   const qtyCol = findCol(headers, QTY_ALIASES)
-  const partCol = findCol(headers, PART_ALIASES)
 
   if (topCol < 0 || bottomCol < 0 || heightCol < 0) return []
 
@@ -344,7 +323,6 @@ function parseTrapezoidRows(rows: string[][], headerIndex: number): ExtractedTra
       bottomWidth: b,
       height: h,
       quantity: extractQuantity(row, qtyCol),
-      partNumber: extractPartNumber(row, partCol),
       confidence: 1.0,
     })
   }

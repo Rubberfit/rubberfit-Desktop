@@ -118,6 +118,23 @@ export interface LayoutModel {
    *   come back from `BinResult.freeRegions` / `BinResult.offcuts`.
    */
   source: "ts-nfp" | "rust-rf-layout"
+
+  /**
+   * Discriminator for synthetic post-pack sheets. Undefined / "standard"
+   * = a real packed bin. "offcut-extract" = a derived card that hoists
+   * a large reusable offcut out of its parent sheet for visual clarity.
+   * Synthetic sheets carry zero parts, zero used/scrap area, and a
+   * single full-sheet `offcuts[]` entry. Skip them when summing stock
+   * area in totals (parent already counted the stock).
+   */
+  sheetKind?: "standard" | "offcut-extract"
+
+  /**
+   * When `sheetKind === "offcut-extract"`, the index (0-based, within
+   * standard sheets only) of the parent layout this was hoisted from.
+   * Drives the "Reusable Offcut from Sheet N" header.
+   */
+  parentSheetIndex?: number
 }
 
 // ── Normaliser ───────────────────────────────────────────────────────────────

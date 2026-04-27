@@ -37,6 +37,11 @@ import {
 import { buildCutPdf } from "@/components/cutting-engine/cut-history-pdf"
 import type { LayoutModel } from "@/components/cutting-engine/layout-model"
 import { usePackJob } from "@/components/cutting-engine/use-pack-job"
+import { promoteLargeOffcutsToSheets } from "@/components/cutting-engine/promote-large-offcuts"
+import { ReusableOffcutsCard } from "@/components/cutting-engine/reusable-offcuts-card"
+import { buildTaggedReusableOffcuts } from "@/components/cutting-engine/reusable-offcut-tags"
+import { useSheetNav, type SectionNavEntry } from "@/lib/sheet-nav-context"
+import { formatInches } from "@/components/cutting-engine/format-inches"
 import { buildPart } from "@/lib/packing/buildPart"
 import type { Bin, ConePackingMode, Part } from "@/lib/packing/types"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -59,6 +64,15 @@ const DEMO_STOCK: StockConfig = {
   thickness: 0.5,
   kerf: 0.125,
 }
+
+const AUTO_NEST_SECTION_IDS = {
+  upload: "autonest-section-upload",
+  stock: "autonest-section-stock",
+  parts: "autonest-section-parts",
+  settings: "autonest-section-settings",
+  graph: "autonest-section-graph",
+  offcuts: "autonest-section-offcuts",
+} as const
 
 // Desktop has no DB-backed material catalog yet. Empty array keeps
 // StockPreviewConfigurator's optional `materialTypes` prop happy and
@@ -188,11 +202,13 @@ export function AutoNestPage() {
   const [showInscribedScrapRects, setShowInscribedScrapRects] = useState(false)
   const [showAabbOverlays, setShowAabbOverlays] = useState(false)
   const [conePackingMode, setConePackingMode] = useState<ConePackingMode>("annularSector")
-  // Option C toggle: pre-place rect items via greedy warm-start before
-  // jagua's LBF samples. Defaults to true (production behavior). Toggle
-  // off to compare timing against the legacy probabilistic-only
-  // pipeline. Forwarded to the Rust packer as PackRequest.useWarmStart.
+  // Pre-place rectangles deterministically before LBF samples. Exposed
+  // as a Graph-card checkbox so operators can compare against LBF-only.
   const [useWarmStart, setUseWarmStart] = useState(true)
+  // Issue #23: hoist large reusable offcuts (>=40% of sheet area) into
+  // their own rendered sheets so the leftover stock reads as a discrete
+  // piece. Pure presentation transform; flipping doesn't re-pack.
+  const [promoteLargeOffcuts, setPromoteLargeOffcuts] = useState(false)
   const { status: packStatus, requestPack, invalidate } = usePackGate()
 
   const selectedTemplates = useMemo(
@@ -364,6 +380,81 @@ export function AutoNestPage() {
   // PDF export consumes layouts. usePackJob owns them now; mirror the
   // hook output into a non-null array so downstream code stays simple.
   const layouts = useMemo<LayoutModel[]>(() => packLayouts ?? [], [packLayouts])
+  // Visualization transform: optionally hoist large reusable offcuts
+  // into their own synthetic sheets. Applied here (not inside
+  // usePackJob) so toggling doesn't trigger a re-pack.
+  const visualizedLayouts = useMemo<LayoutModel[]>(
+    () => (promoteLargeOffcuts ? promoteLargeOffcutsToSheets(layouts) : layouts),
+    [layouts, promoteLargeOffcuts]
+  )
+  const hasReusableOffcuts = useMemo(
+    () => packStatus === "done" && buildTaggedReusableOffcuts(visualizedLayouts).length > 0,
+    [visualizedLayouts, packStatus]
+  )
+
+  // Publish per-sheet jump-to entries to the global sidebar so operators
+  // can navigate a tall multi-sheet graph without manually scrolling.
+  // The visualizer wraps each sheet in a div with id="autonest-sheet-{i}";
+  // the sidebar's onClick scrollIntoView walks to that DOM node.
+  const { publish: publishSheetNav, publishSections } = useSheetNav()
+  const hasConfiguredCuts = selectedTemplates.length > 0 && selectedTemplate !== null
+
+  useEffect(() => {
+    const sections: SectionNavEntry[] = [
+      { id: AUTO_NEST_SECTION_IDS.upload, label: "Cut List", kind: "upload" },
+      { id: AUTO_NEST_SECTION_IDS.stock, label: "Stock", kind: "stock" },
+      { id: AUTO_NEST_SECTION_IDS.parts, label: "Parts", kind: "parts" },
+    ]
+
+    if (hasConfiguredCuts) {
+      sections.push({ id: AUTO_NEST_SECTION_IDS.settings, label: "Cut Settings", kind: "settings" })
+    }
+
+    sections.push({ id: AUTO_NEST_SECTION_IDS.graph, label: "Graph", kind: "graph" })
+
+    if (hasReusableOffcuts) {
+      sections.push({
+        id: AUTO_NEST_SECTION_IDS.offcuts,
+        label: "Reusable Offcuts",
+        kind: "offcuts",
+      })
+    }
+
+    publishSections(sections)
+  }, [hasConfiguredCuts, hasReusableOffcuts, publishSections])
+
+  useEffect(() => {
+    return () => {
+      publishSections([])
+      publishSheetNav([])
+    }
+  }, [publishSections, publishSheetNav])
+
+  useEffect(() => {
+    if (packStatus !== "done" || visualizedLayouts.length === 0) {
+      publishSheetNav([])
+      return
+    }
+    let standardCounter = 0
+    const entries = visualizedLayouts.map((layout, i) => {
+      const isExtract = layout.sheetKind === "offcut-extract"
+      if (!isExtract) {
+        standardCounter++
+        return {
+          id: `autonest-sheet-${i}`,
+          label: `Sheet ${standardCounter}`,
+          kind: "standard" as const,
+        }
+      }
+      const parent = (layout.parentSheetIndex ?? 0) + 1
+      return {
+        id: `autonest-sheet-${i}`,
+        label: `Offcut · ${formatInches(layout.sheetWidth)}" × ${formatInches(layout.sheetLength)}" (Sheet ${parent})`,
+        kind: "offcut-extract" as const,
+      }
+    })
+    publishSheetNav(entries)
+  }, [visualizedLayouts, packStatus, publishSheetNav])
 
   // Pack-gate invalidation. Whenever any input that feeds the packer
   // changes, drop the gate back to `idle` and clear the prior layout's
@@ -489,7 +580,7 @@ export function AutoNestPage() {
         selectedTemplate,
         selectedTemplates,
         pdfTagMap,
-        layouts
+        visualizedLayouts
       )
       if (!blob) {
         toast.error("Failed to generate PDF")
@@ -507,7 +598,7 @@ export function AutoNestPage() {
     } finally {
       setIsExporting(false)
     }
-  }, [selectedTemplate, selectedTemplates, stock, cutMetrics, tagMap, layouts])
+  }, [selectedTemplate, selectedTemplates, stock, cutMetrics, tagMap, visualizedLayouts])
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -529,7 +620,9 @@ export function AutoNestPage() {
         </div>
       </div>
 
-      <CutListUpload onPartsConfirmed={handleUploadedParts} />
+      <section id={AUTO_NEST_SECTION_IDS.upload} className="scroll-mt-6">
+        <CutListUpload onPartsConfirmed={handleUploadedParts} />
+      </section>
 
       {uploadedParts.length > 0 && (
         <Card className="border border-slate-200 shadow-sm">
@@ -587,156 +680,183 @@ export function AutoNestPage() {
         </Card>
       )}
 
-      <StockPreviewConfigurator
-        activeStockPreset={activeStockPreset}
-        stock={stock}
-        onStockChange={setStock}
-        materialTypes={MATERIAL_TYPES}
-      />
+      <section id={AUTO_NEST_SECTION_IDS.stock} className="scroll-mt-6">
+        <StockPreviewConfigurator
+          activeStockPreset={activeStockPreset}
+          stock={stock}
+          onStockChange={setStock}
+          materialTypes={MATERIAL_TYPES}
+        />
+      </section>
 
-      <PresetDimensionSelector
-        onApply={handleTemplateApply}
-        rollWidth={stock.width}
-        rollLength={stock.length}
-        tagMap={tagByTemplateId}
-      />
+      <section id={AUTO_NEST_SECTION_IDS.parts} className="scroll-mt-6">
+        <PresetDimensionSelector
+          onApply={handleTemplateApply}
+          rollWidth={stock.width}
+          rollLength={stock.length}
+          tagMap={tagByTemplateId}
+        />
+      </section>
 
       {selectedTemplates.length > 0 && selectedTemplate ? (
         <>
-          <CutConfigCard
-            selectedTemplate={selectedTemplate}
-            selectedTemplates={selectedTemplates}
-            safeQuantity={safeQuantity}
-            cutDirection={cutDirection}
-            setCutDirection={setCutDirection}
-            customCutRatioInput={customCutRatioInput}
-            setCustomCutRatioInput={setCustomCutRatioInput}
-            customCutRatios={customCutRatios}
-            requestedSqFt={requestedSqFt}
-          />
+          <section id={AUTO_NEST_SECTION_IDS.settings} className="scroll-mt-6">
+            <CutConfigCard
+              selectedTemplate={selectedTemplate}
+              selectedTemplates={selectedTemplates}
+              safeQuantity={safeQuantity}
+              cutDirection={cutDirection}
+              setCutDirection={setCutDirection}
+              customCutRatioInput={customCutRatioInput}
+              setCustomCutRatioInput={setCustomCutRatioInput}
+              customCutRatios={customCutRatios}
+              requestedSqFt={requestedSqFt}
+            />
+          </section>
 
+          <section id={AUTO_NEST_SECTION_IDS.graph} className="scroll-mt-6">
+            <Card className="border border-slate-200 shadow-sm">
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                    <LayoutLabel />
+                    4. Graph
+                  </CardTitle>
+                  <div className="flex items-center gap-3">
+                    {hasCones && (
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                        Cone collision
+                        <Select
+                          value={conePackingMode}
+                          onValueChange={(value) => setConePackingMode(value as ConePackingMode)}
+                        >
+                          <SelectTrigger size="sm" className="w-[138px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="convexHull">Convex hull</SelectItem>
+                            <SelectItem value="annularSector">Actual cone</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </label>
+                    )}
+                    {canShowPackHullOverlay && (
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={showPackHullOverlay}
+                          onCheckedChange={(v) => setShowPackHullOverlay(v === true)}
+                        />
+                        Show pack hull
+                      </label>
+                    )}
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Checkbox
+                        checked={showInscribedScrapRects}
+                        onCheckedChange={(v) => setShowInscribedScrapRects(v === true)}
+                      />
+                      Show inscribed rectangles
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Checkbox
+                        checked={showAabbOverlays}
+                        onCheckedChange={(v) => setShowAabbOverlays(v === true)}
+                      />
+                      Show AABB
+                    </label>
+                    <label
+                      className="flex items-center gap-2 text-xs text-muted-foreground"
+                      title="Pre-place rectangles deterministically before LBF samples."
+                    >
+                      <Checkbox
+                        checked={useWarmStart}
+                        onCheckedChange={(v) => setUseWarmStart(v === true)}
+                      />
+                      Warm-start
+                    </label>
+                    <label
+                      className="flex items-center gap-2 text-xs text-muted-foreground"
+                      title="Promote any reusable offcut at least 40% of the sheet's area into its own card so the leftover stock is easier to read."
+                    >
+                      <Checkbox
+                        checked={promoteLargeOffcuts}
+                        onCheckedChange={(v) => setPromoteLargeOffcuts(v === true)}
+                      />
+                      Hoist large offcuts
+                    </label>
+                    {cutMetrics !== null && cutMetrics.partsCompleted > 0 && !autoBoostPending && (
+                      <Button size="sm" onClick={handleExportPdf} disabled={isExporting}>
+                        <FileDown className="mr-1.5 h-4 w-4" />
+                        {isExporting ? "Saving…" : "Export PDF"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <CardDescription>
+                  The graph starts from rectangular stock and shows the actual cut pieces placed on
+                  that stock, with reusable offcut in amber and waste in red.
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent>
+                {packStatus === "done" ? (
+                  <LayoutVisualizer
+                    layouts={visualizedLayouts}
+                    defaultStockWidth={stock.width}
+                    defaultStockLength={stock.length}
+                    isPacking={isPacking}
+                    packError={packError}
+                    onMetricsChange={setCutMetrics}
+                    sheetIdPrefix="autonest-sheet"
+                    debugOptions={{
+                      showPackHullOverlay: canShowPackHullOverlay && showPackHullOverlay,
+                      showInscribedScrapRects,
+                      showAabbOverlays,
+                    }}
+                  />
+                ) : (
+                  <PackPrompt
+                    status={packStatus}
+                    partCount={totalRequestedCuts}
+                    stockLabel={`${stock.width}" × ${stock.length}"`}
+                    onPack={requestPack}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </section>
+
+          {hasReusableOffcuts && (
+            <section id={AUTO_NEST_SECTION_IDS.offcuts} className="scroll-mt-6">
+              <ReusableOffcutsCard layouts={visualizedLayouts} />
+            </section>
+          )}
+        </>
+      ) : (
+        <section id={AUTO_NEST_SECTION_IDS.graph} className="scroll-mt-6">
           <Card className="border border-slate-200 shadow-sm">
             <CardHeader>
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-base font-semibold">
                   <LayoutLabel />
                   4. Graph
                 </CardTitle>
-                <div className="flex items-center gap-3">
-                  {hasCones && (
-                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                      Cone collision
-                      <Select
-                        value={conePackingMode}
-                        onValueChange={(value) => setConePackingMode(value as ConePackingMode)}
-                      >
-                        <SelectTrigger size="sm" className="w-[138px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="convexHull">Convex hull</SelectItem>
-                          <SelectItem value="annularSector">Actual cone</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </label>
-                  )}
-                  {canShowPackHullOverlay && (
-                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Checkbox
-                        checked={showPackHullOverlay}
-                        onCheckedChange={(v) => setShowPackHullOverlay(v === true)}
-                      />
-                      Show pack hull
-                    </label>
-                  )}
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Checkbox
-                      checked={showInscribedScrapRects}
-                      onCheckedChange={(v) => setShowInscribedScrapRects(v === true)}
-                    />
-                    Show inscribed rects
-                  </label>
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Checkbox
-                      checked={showAabbOverlays}
-                      onCheckedChange={(v) => setShowAabbOverlays(v === true)}
-                    />
-                    Show AABBs
-                  </label>
-                  <label
-                    className="flex items-center gap-2 text-xs text-muted-foreground"
-                    title="Option C: pre-place rectangles deterministically before LBF samples. Toggle off to compare timing against the legacy probabilistic-only pipeline."
-                  >
-                    <Checkbox
-                      checked={useWarmStart}
-                      onCheckedChange={(v) => setUseWarmStart(v === true)}
-                    />
-                    Rect warm-start
-                  </label>
-                  {cutMetrics !== null && cutMetrics.partsCompleted > 0 && !autoBoostPending && (
-                    <Button size="sm" onClick={handleExportPdf} disabled={isExporting}>
-                      <FileDown className="mr-1.5 h-4 w-4" />
-                      {isExporting ? "Saving…" : "Export PDF"}
-                    </Button>
-                  )}
-                </div>
               </div>
               <CardDescription>
-                The graph starts from rectangular stock and shows the actual cut pieces placed on
-                that stock, with reusable offcut in amber and waste in red.
+                The loaded stock sheet — no cuts placed yet. Pick a part above to start nesting onto
+                it; the layout stays put.
               </CardDescription>
             </CardHeader>
-
             <CardContent>
-              {packStatus === "done" ? (
-                <LayoutVisualizer
-                  layouts={packLayouts}
-                  defaultStockWidth={stock.width}
-                  defaultStockLength={stock.length}
-                  isPacking={isPacking}
-                  packError={packError}
-                  onMetricsChange={setCutMetrics}
-                  debugOptions={{
-                    showPackHullOverlay: canShowPackHullOverlay && showPackHullOverlay,
-                    showInscribedScrapRects,
-                    showAabbOverlays,
-                  }}
-                />
-              ) : (
-                <PackPrompt
-                  status={packStatus}
-                  partCount={totalRequestedCuts}
-                  stockLabel={`${stock.width}" × ${stock.length}"`}
-                  onPack={requestPack}
-                />
-              )}
+              <LayoutVisualizer defaultStockWidth={stock.width} defaultStockLength={stock.length} />
+              <div className="mt-4 flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600 text-xs dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+                <Shapes className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                <span>
+                  Pick a preset or upload a cut list to start nesting parts onto this sheet.
+                </span>
+              </div>
             </CardContent>
           </Card>
-        </>
-      ) : (
-        <Card className="border border-slate-200 shadow-sm">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                <LayoutLabel />
-                4. Graph
-              </CardTitle>
-            </div>
-            <CardDescription>
-              The loaded stock sheet — no cuts placed yet. Pick a part above to start nesting onto
-              it; the layout stays put.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <LayoutVisualizer defaultStockWidth={stock.width} defaultStockLength={stock.length} />
-            <div className="mt-4 flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600 text-xs dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
-              <Shapes className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-              <span>
-                Pick a preset or upload a cut list to start nesting parts onto this sheet.
-              </span>
-            </div>
-          </CardContent>
-        </Card>
+        </section>
       )}
     </div>
   )

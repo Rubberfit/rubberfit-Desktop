@@ -575,58 +575,6 @@ function addMetrics(doc: jsPDF, data: CutPdfData, y: number): number {
   return y
 }
 
-function addAdhesives(doc: jsPDF, data: CutPdfData, y: number): number {
-  if (data.materialUsedSqFt <= 0) return y
-  y = checkNewPage(doc, y, 35)
-
-  doc.setFontSize(11)
-  doc.setTextColor(...GRAY_900)
-  doc.setFont("helvetica", "bold")
-  doc.text("Adhesive Requirements", MARGIN, y)
-  y += 6
-
-  const pr200 = data.materialUsedSqFt / 380
-  const sc4000 = data.materialUsedSqFt / 47
-  const e40 = sc4000 * 4
-  const adhesives = [
-    ["PR200 Primer", `${pr200.toFixed(2)} gal`, "1 gal / 380 sq ft"],
-    ["SC4000 Glue", `${sc4000.toFixed(2)} gal`, "1 gal / 47 sq ft"],
-    ["E40 Hardener", `${e40.toFixed(2)} units`, "4 units / gal SC4000"],
-  ]
-
-  doc.setFillColor(...BRAND)
-  doc.rect(MARGIN, y - 3.5, CONTENT_W, 6, "F")
-  doc.setFontSize(8)
-  doc.setTextColor(...WHITE)
-  doc.setFont("helvetica", "bold")
-  doc.text("ADHESIVE", MARGIN + 3, y)
-  doc.text("AMOUNT", MARGIN + 65, y)
-  doc.text("COVERAGE RATE", MARGIN + 115, y)
-  y += 5
-
-  doc.setFontSize(9)
-  for (let i = 0; i < adhesives.length; i++) {
-    y = checkNewPage(doc, y, 6)
-    if (i % 2 === 0) {
-      doc.setFillColor(...GRAY_50)
-      doc.rect(MARGIN, y - 3.5, CONTENT_W, 5.5, "F")
-    }
-    doc.setTextColor(...GRAY_700)
-    doc.setFont("helvetica", "normal")
-    doc.text(adhesives[i][0], MARGIN + 3, y)
-    doc.setTextColor(...GRAY_900)
-    doc.setFont("helvetica", "bold")
-    doc.text(adhesives[i][1], MARGIN + 65, y)
-    doc.setTextColor(...GRAY_500)
-    doc.setFont("helvetica", "normal")
-    doc.text(adhesives[i][2], MARGIN + 115, y)
-    y += 5.5
-  }
-
-  y += 4
-  return y
-}
-
 function addFooter(doc: jsPDF): void {
   const totalPages = doc.internal.pages.length - 1
   for (let i = 1; i <= totalPages; i++) {
@@ -731,8 +679,7 @@ export async function generateCutPdf(args: {
     y = await addDiagrams(doc, svgElements, y)
   }
   y = addReusableOffcuts(doc, layouts, y)
-  y = addMetrics(doc, data, y)
-  addAdhesives(doc, data, y)
+  addMetrics(doc, data, y)
   addFooter(doc)
 
   return doc.output("blob")

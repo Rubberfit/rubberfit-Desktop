@@ -1,7 +1,7 @@
-import { FileStack, Grid3x3, Layers, Recycle } from "lucide-react"
+import { FileStack, Grid3x3, Layers, Recycle, Ruler, Settings2, Shapes, Upload } from "lucide-react"
 import { NavLink } from "react-router-dom"
 import { cn } from "@/lib/utils"
-import { useSheetNav } from "@/lib/sheet-nav-context"
+import { useSheetNav, type SectionNavEntry } from "@/lib/sheet-nav-context"
 
 interface NavItem {
   to: string
@@ -14,8 +14,17 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/free-roam", label: "Free Roam", Icon: Grid3x3 },
 ]
 
+const SECTION_ICONS: Record<SectionNavEntry["kind"], typeof Layers> = {
+  upload: Upload,
+  stock: Ruler,
+  parts: Shapes,
+  settings: Settings2,
+  graph: Layers,
+  offcuts: Recycle,
+}
+
 export function AppSidebar() {
-  const { entries, scrollTo } = useSheetNav()
+  const { entries, sections, scrollTo } = useSheetNav()
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
@@ -40,6 +49,31 @@ export function AppSidebar() {
             <span>{label}</span>
           </NavLink>
         ))}
+        {sections.length > 0 && (
+          <div className="pt-4">
+            <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Sections
+            </div>
+            <div className="space-y-0.5">
+              {sections.map((section) => {
+                const Icon = SECTION_ICONS[section.kind]
+                return (
+                  <button
+                    key={section.id}
+                    type="button"
+                    onClick={() => scrollTo(section.id)}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  >
+                    <Icon className="size-3.5 shrink-0" />
+                    <span className="truncate" title={section.label}>
+                      {section.label}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
         {entries.length > 0 && (
           <div className="pt-4">
             <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">

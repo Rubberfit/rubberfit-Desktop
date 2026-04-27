@@ -143,7 +143,11 @@ export default function LayoutVisualizer({
 
   const isMulti = sheets.length > 1
   const totals = buildTotals(sheets)
+  // "Sheet N of M" headers count real packed bins only; promoted
+  // reusable offcuts get their own header style and don't bump M.
+  const standardTotal = sheets.filter((s) => s.sheetKind !== "offcut-extract").length
 
+  let standardCounter = 0
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
       <SheetHeader
@@ -152,7 +156,7 @@ export default function LayoutVisualizer({
         totals={totals}
         isPacking={isPacking}
         packError={packError}
-        sheetCount={sheets.length}
+        sheetCount={standardTotal}
       />
 
       <Legend layouts={sheets} />
@@ -162,16 +166,21 @@ export default function LayoutVisualizer({
           isMulti ? "flex flex-col gap-6" : "overflow-x-auto"
         }`}
       >
-        {sheets.map((layout, i) => (
-          <SheetSvg
-            key={`sheet-${i}`}
-            layout={layout}
-            sheetIndex={i}
-            totalSheets={sheets.length}
-            patternSeed={`${patternSeed}-s${i}`}
-            debugOptions={debugOptions}
-          />
-        ))}
+        {sheets.map((layout, i) => {
+          const isExtract = layout.sheetKind === "offcut-extract"
+          const standardNumber = isExtract ? undefined : ++standardCounter
+          return (
+            <SheetSvg
+              key={`sheet-${i}`}
+              layout={layout}
+              totalSheets={sheets.length}
+              standardNumber={standardNumber}
+              standardTotal={standardTotal}
+              patternSeed={`${patternSeed}-s${i}`}
+              debugOptions={debugOptions}
+            />
+          )
+        })}
       </div>
 
       <SheetMetricsFooter totals={totals} />
@@ -199,16 +208,23 @@ function buildTotals(sheets: LayoutModel[]): Totals {
   let partsPlaced = 0
   let partsOverflow = 0
   let weightedFab = 0
+  let standardCount = 0
   for (const s of sheets) {
+    const isExtract = s.sheetKind === "offcut-extract"
     usedSqFt += s.usedAreaSqFt
     reusableSqFt += s.reusableAreaSqFt
     scrapSqFt += s.scrapAreaSqFt
-    stockSqFt += (s.sheetWidth * s.sheetLength) / 144
+    if (!isExtract) {
+      // Synthetic offcut sheets are derived from a parent's stock —
+      // counting their area would double-count the underlying material.
+      stockSqFt += (s.sheetWidth * s.sheetLength) / 144
+      weightedFab += s.fabScore
+      standardCount++
+    }
     partsPlaced += s.placedCount
     partsOverflow += s.overflowCount
-    weightedFab += s.fabScore
   }
-  const fabScore = sheets.length > 0 ? weightedFab / sheets.length : 0
+  const fabScore = standardCount > 0 ? weightedFab / standardCount : 0
   return { usedSqFt, reusableSqFt, scrapSqFt, stockSqFt, partsPlaced, partsOverflow, fabScore }
 }
 
@@ -234,9 +250,10 @@ function buildMetrics(sheets: LayoutModel[]): SimpleCutMetrics {
 
 function summaryLine(sheets: LayoutModel[]): string {
   const t = buildTotals(sheets)
-  const sheetWord = sheets.length === 1 ? "sheet" : "sheets"
+  const standardCount = sheets.filter((s) => s.sheetKind !== "offcut-extract").length
+  const sheetWord = standardCount === 1 ? "sheet" : "sheets"
   const overflowSuffix = t.partsOverflow > 0 ? `, ${t.partsOverflow} overflow` : ""
-  return `${sheets.length} ${sheetWord}, ${t.partsPlaced} parts placed${overflowSuffix}`
+  return `${standardCount} ${sheetWord}, ${t.partsPlaced} parts placed${overflowSuffix}`
 }
 
 function SheetHeader({
@@ -496,14 +513,18 @@ function computeSheetLayout(sheetWidth: number, sheetLength: number): SheetLayou
 
 function SheetSvg({
   layout: model,
-  sheetIndex,
   totalSheets,
+  standardNumber,
+  standardTotal,
   patternSeed,
   debugOptions,
 }: {
   layout: LayoutModel
-  sheetIndex: number
   totalSheets: number
+  /** 1-indexed position within the *standard* (non-promoted) sheets, or undefined for promoted offcut sheets. */
+  standardNumber?: number
+  /** Total count of standard sheets (excludes promoted offcut sheets). */
+  standardTotal?: number
   patternSeed: string
   debugOptions?: DebugOverlayOptions
 }) {
@@ -595,6 +616,7 @@ function SheetSvg({
   const vbW = VIEW_WIDTH / zoom
   const vbH = VIEW_HEIGHT / zoom
   const isMulti = totalSheets > 1
+  const isExtract = model.sheetKind === "offcut-extract"
 
   return (
     <div className="group relative">
@@ -606,10 +628,19 @@ function SheetSvg({
           setPan({ x: 0, y: 0 })
         }}
       />
-      {isMulti && (
-        <div className="mb-1 text-center text-xs font-medium text-muted-foreground">
-          Sheet {sheetIndex + 1} of {totalSheets}
+      {isExtract ? (
+        <div className="mb-1 text-center text-xs font-medium text-amber-700">
+          {`Reusable Offcut from Sheet ${(model.parentSheetIndex ?? 0) + 1} `}
+          {`(${formatInches(model.sheetWidth)}" × ${formatInches(model.sheetLength)}")`}
         </div>
+      ) : (
+        isMulti &&
+        standardNumber !== undefined &&
+        standardTotal !== undefined && (
+          <div className="mb-1 text-center text-xs font-medium text-muted-foreground">
+            Sheet {standardNumber} of {standardTotal}
+          </div>
+        )
       )}
       <svg
         ref={svgRef}
@@ -622,7 +653,11 @@ function SheetSvg({
         onPointerLeave={onPointerUp}
       >
         <PatternDefs patternSeed={patternSeed} />
-        <SheetTitle width={model.sheetWidth} length={model.sheetLength} />
+        <SheetTitle
+          width={model.sheetWidth}
+          length={model.sheetLength}
+          variant={isExtract ? "offcut-extract" : "stock"}
+        />
         <clipPath id={clipId}>
           <rect
             x={layout.surfaceX}
@@ -636,40 +671,50 @@ function SheetSvg({
           y={layout.surfaceY}
           width={layout.surfacePxW}
           height={layout.surfacePxH}
-          fill={`url(#${stockId})`}
-          className="stroke-border"
+          fill={isExtract ? `url(#${offcutId})` : `url(#${stockId})`}
+          stroke={isExtract ? OFFCUT_OUTLINE : undefined}
           strokeWidth="2"
+          strokeDasharray={isExtract ? "6 4" : undefined}
+          className={isExtract ? undefined : "stroke-border"}
         />
         <g clipPath={`url(#${clipId})`}>
-          {/* Scrap layer — combines every `BinResult.freeRegions`
-              polygon (one outer + one hole-reversed per placed part)
-              into a single evenodd path, with reusable amber rects
-              added as cutout subpaths. evenodd correctly resolves the
-              shape: the outer paints the bin red, hole-reverseds cancel
-              cone interiors (point in cone counted twice → not filled),
-              offcut cutouts cancel reusable rect areas (point in offcut
-              flips count → not filled). The chord-vs-arc gap, sub-cell
-              residual, and post-iteration leftover all paint as red,
-              matching the displayed `scrapAreaSqFt` total. */}
-          <ScrapLayer
-            regions={model.scrap}
-            offcuts={model.offcuts}
-            fill={`url(#${wasteId})`}
-            layout={layout}
-          />
-          {/* Reusable offcuts (amber). Each gets its W × L printed at
-              the centre so the operator can size the leftover at a glance. */}
-          {model.offcuts.map((region, i) => (
-            <React.Fragment key={`offcut-${i}`}>
-              <RegionShape
-                region={region}
-                fill={`url(#${offcutId})`}
-                stroke={OFFCUT_OUTLINE}
+          {/* Synthetic offcut-extract sheets paint the amber pattern +
+              dashed border on the outer rect above; skip the per-region
+              offcut/scrap rendering to avoid stacking a solid amber
+              outline over the dashed border. */}
+          {!isExtract && (
+            <>
+              {/* Scrap layer — combines every `BinResult.freeRegions`
+                  polygon (one outer + one hole-reversed per placed part)
+                  into a single evenodd path, with reusable amber rects
+                  added as cutout subpaths. evenodd correctly resolves the
+                  shape: the outer paints the bin red, hole-reverseds cancel
+                  cone interiors (point in cone counted twice → not filled),
+                  offcut cutouts cancel reusable rect areas (point in offcut
+                  flips count → not filled). The chord-vs-arc gap, sub-cell
+                  residual, and post-iteration leftover all paint as red,
+                  matching the displayed `scrapAreaSqFt` total. */}
+              <ScrapLayer
+                regions={model.scrap}
+                offcuts={model.offcuts}
+                fill={`url(#${wasteId})`}
                 layout={layout}
               />
-              <OffcutLabel region={region} layout={layout} />
-            </React.Fragment>
-          ))}
+              {/* Reusable offcuts (amber). Each gets its W × L printed at
+                  the centre so the operator can size the leftover at a glance. */}
+              {model.offcuts.map((region, i) => (
+                <React.Fragment key={`offcut-${i}`}>
+                  <RegionShape
+                    region={region}
+                    fill={`url(#${offcutId})`}
+                    stroke={OFFCUT_OUTLINE}
+                    layout={layout}
+                  />
+                  <OffcutLabel region={region} layout={layout} />
+                </React.Fragment>
+              ))}
+            </>
+          )}
           {/* Debug overlay: inscribed Scrap-classified rects, dashed
               darker-red outline. Only rendered when the operator
               ticks "Show inscribed rects". */}
@@ -1312,7 +1357,20 @@ function PatternDefs({ patternSeed }: { patternSeed: string }) {
   )
 }
 
-function SheetTitle({ width, length }: { width: number; length: number }) {
+function SheetTitle({
+  width,
+  length,
+  variant = "stock",
+}: {
+  width: number
+  length: number
+  variant?: "stock" | "offcut-extract"
+}) {
+  const title = variant === "offcut-extract" ? "Reusable Offcut" : "Rubber Sheet Nesting Layout"
+  const subtitle =
+    variant === "offcut-extract"
+      ? `Promoted ${formatInches(width)}" × ${formatInches(length)}" leftover`
+      : `Typical ${formatInches(width)}" × ${formatInches(length)}" stock sheet`
   return (
     <>
       <text
@@ -1323,7 +1381,7 @@ function SheetTitle({ width, length }: { width: number; length: number }) {
         fontSize="20"
         fontWeight="700"
       >
-        Rubber Sheet Nesting Layout
+        {title}
       </text>
       <text
         x={VIEW_WIDTH / 2}
@@ -1332,7 +1390,7 @@ function SheetTitle({ width, length }: { width: number; length: number }) {
         className="fill-muted-foreground"
         fontSize="12"
       >
-        {`Typical ${formatInches(width)}" × ${formatInches(length)}" stock sheet`}
+        {subtitle}
       </text>
     </>
   )

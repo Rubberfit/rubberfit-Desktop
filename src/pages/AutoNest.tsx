@@ -38,6 +38,7 @@ import { buildCutPdf } from "@/components/cutting-engine/cut-history-pdf"
 import type { LayoutModel } from "@/components/cutting-engine/layout-model"
 import { usePackJob } from "@/components/cutting-engine/use-pack-job"
 import { promoteLargeOffcutsToSheets } from "@/components/cutting-engine/promote-large-offcuts"
+import { ReusableOffcutsCard } from "@/components/cutting-engine/reusable-offcuts-card"
 import { buildPart } from "@/lib/packing/buildPart"
 import type { Bin, ConePackingMode, Part } from "@/lib/packing/types"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -531,7 +532,7 @@ export function AutoNestPage() {
         selectedTemplate,
         selectedTemplates,
         pdfTagMap,
-        layouts
+        visualizedLayouts
       )
       if (!blob) {
         toast.error("Failed to generate PDF")
@@ -549,7 +550,7 @@ export function AutoNestPage() {
     } finally {
       setIsExporting(false)
     }
-  }, [selectedTemplate, selectedTemplates, stock, cutMetrics, tagMap, layouts])
+  }, [selectedTemplate, selectedTemplates, stock, cutMetrics, tagMap, visualizedLayouts])
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -777,6 +778,8 @@ export function AutoNestPage() {
               )}
             </CardContent>
           </Card>
+
+          {packStatus === "done" && <ReusableOffcutsCard layouts={visualizedLayouts} />}
         </>
       ) : (
         <Card className="border border-slate-200 shadow-sm">

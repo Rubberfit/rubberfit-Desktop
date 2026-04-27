@@ -7,6 +7,7 @@ import type { PartTemplate } from "./PresetDimensionSelector"
 import type { StockConfig } from "./stock-preview-configurator"
 import { PART_OPTIONS } from "./preset-template-data"
 import type { LayoutModel, PlacedPart, LayoutRegion } from "./layout-model"
+import { buildTaggedReusableOffcuts } from "./reusable-offcut-tags"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -471,6 +472,65 @@ async function addDiagrams(doc: jsPDF, svgElements: SVGSVGElement[], y: number):
   return y
 }
 
+function addReusableOffcuts(doc: jsPDF, layouts: LayoutModel[], y: number): number {
+  const tagged = buildTaggedReusableOffcuts(layouts)
+  if (tagged.length === 0) return y
+
+  const headerH = 6
+  const rowH = 5.5
+  const needed = 12 + headerH + tagged.length * rowH
+  y = checkNewPage(doc, y, needed)
+
+  doc.setFontSize(11)
+  doc.setTextColor(...GRAY_900)
+  doc.setFont("helvetica", "bold")
+  doc.text("Reusable Offcuts", MARGIN, y)
+  y += 6
+
+  doc.setFillColor(...BRAND)
+  doc.rect(MARGIN, y - 3.5, CONTENT_W, headerH, "F")
+  doc.setFontSize(8)
+  doc.setTextColor(...WHITE)
+  doc.setFont("helvetica", "bold")
+  const colTagX = MARGIN + 3
+  const colDimsX = MARGIN + 25
+  const colAreaX = MARGIN + 90
+  const colSourceX = MARGIN + 130
+  doc.text("TAG", colTagX, y)
+  doc.text("DIMENSIONS", colDimsX, y)
+  doc.text("AREA", colAreaX, y)
+  doc.text("SOURCE SHEET", colSourceX, y)
+  y += 5
+
+  doc.setFontSize(9)
+  for (let i = 0; i < tagged.length; i++) {
+    y = checkNewPage(doc, y, rowH)
+    if (i % 2 === 0) {
+      doc.setFillColor(...GRAY_50)
+      doc.rect(MARGIN, y - 3.5, CONTENT_W, 5.5, "F")
+    }
+    const t = tagged[i]
+    doc.setTextColor(...OFFCUT_STROKE_RGB)
+    doc.setFont("helvetica", "bold")
+    doc.text(t.tag, colTagX, y)
+    doc.setTextColor(...GRAY_900)
+    doc.setFont("helvetica", "normal")
+    doc.text(`${formatInches(t.region.width)}" × ${formatInches(t.region.height)}"`, colDimsX, y)
+    doc.text(`${t.areaSqFt.toFixed(2)} sq ft`, colAreaX, y)
+    doc.setTextColor(...GRAY_700)
+    doc.text(`Sheet ${t.sourceSheetNumber}`, colSourceX, y)
+    y += rowH
+  }
+
+  y += 4
+  return y
+}
+
+function formatInches(n: number): string {
+  if (Number.isInteger(n)) return String(n)
+  return n.toFixed(2).replace(/\.?0+$/, "")
+}
+
 function addMetrics(doc: jsPDF, data: CutPdfData, y: number): number {
   y = checkNewPage(doc, y, 50)
   doc.setFontSize(11)
@@ -674,6 +734,7 @@ export async function generateCutPdf(args: {
   } else {
     y = await addDiagrams(doc, svgElements, y)
   }
+  y = addReusableOffcuts(doc, layouts, y)
   y = addMetrics(doc, data, y)
   addAdhesives(doc, data, y)
   addFooter(doc)

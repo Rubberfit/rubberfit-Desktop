@@ -53,6 +53,34 @@ import type { MaterialType } from "@/types/supabase-models"
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
+/**
+ * Pack pipeline selection surfaced in the Graph card header. Each value
+ * represents a distinct way to drive the Rust packer; today only the
+ * warm-start vs LBF-only split exists, but future pipelines (e.g. a
+ * pure deterministic packer, a parallel-sampling LBF, etc.) drop in
+ * here without needing more boolean toggles.
+ */
+type PackPipeline = "warm-start" | "lbf-only"
+
+interface PackPipelineOption {
+  value: PackPipeline
+  label: string
+  description: string
+}
+
+const PACK_PIPELINE_OPTIONS: PackPipelineOption[] = [
+  {
+    value: "warm-start",
+    label: "Rect warm-start",
+    description: "Pre-place rectangles deterministically before LBF samples (default).",
+  },
+  {
+    value: "lbf-only",
+    label: "LBF only",
+    description: "Skip the warm-start and run probabilistic LBF only.",
+  },
+]
+
 const DEMO_STOCK: StockConfig = {
   width: 96,
   length: 48,
@@ -189,11 +217,13 @@ export function AutoNestPage() {
   const [showInscribedScrapRects, setShowInscribedScrapRects] = useState(false)
   const [showAabbOverlays, setShowAabbOverlays] = useState(false)
   const [conePackingMode, setConePackingMode] = useState<ConePackingMode>("annularSector")
-  // Option C toggle: pre-place rect items via greedy warm-start before
-  // jagua's LBF samples. Defaults to true (production behavior). Toggle
-  // off to compare timing against the legacy probabilistic-only
-  // pipeline. Forwarded to the Rust packer as PackRequest.useWarmStart.
-  const [useWarmStart, setUseWarmStart] = useState(true)
+  // Pack pipeline selection. Surfaces in the Graph card header as a
+  // dropdown so future pipelines drop in next to the existing options.
+  // Maps to PackRequest.useWarmStart on the way to Rust:
+  //   - "warm-start": pre-place rectangles deterministically before LBF samples (default)
+  //   - "lbf-only":   skip the warm-start and run probabilistic LBF only (timing comparison)
+  const [pipeline, setPipeline] = useState<PackPipeline>("warm-start")
+  const useWarmStart = pipeline === "warm-start"
   // Issue #23: hoist large reusable offcuts (>=40% of sheet area) into
   // their own rendered sheets so the leftover stock reads as a discrete
   // piece. Pure presentation transform; flipping doesn't re-pack.
@@ -677,13 +707,26 @@ export function AutoNestPage() {
                   </label>
                   <label
                     className="flex items-center gap-2 text-xs text-muted-foreground"
-                    title="Option C: pre-place rectangles deterministically before LBF samples. Toggle off to compare timing against the legacy probabilistic-only pipeline."
+                    title={
+                      PACK_PIPELINE_OPTIONS.find((o) => o.value === pipeline)?.description ?? ""
+                    }
                   >
-                    <Checkbox
-                      checked={useWarmStart}
-                      onCheckedChange={(v) => setUseWarmStart(v === true)}
-                    />
-                    Rect warm-start
+                    Pipeline
+                    <Select
+                      value={pipeline}
+                      onValueChange={(value) => setPipeline(value as PackPipeline)}
+                    >
+                      <SelectTrigger size="sm" className="w-[148px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PACK_PIPELINE_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </label>
                   <label
                     className="flex items-center gap-2 text-xs text-muted-foreground"

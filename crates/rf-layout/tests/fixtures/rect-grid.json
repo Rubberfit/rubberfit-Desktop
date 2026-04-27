@@ -1,0 +1,20 @@
+{
+  "_description": "Twenty 6x6 rects, rotation disabled, on a 48x96 fresh bin (fixed grid)",
+  "bins": [{ "binId": "b1", "width": 48, "height": 96, "kind": "fresh" }],
+  "items": [
+    {
+      "shapeId": "rect-a",
+      "quantity": 20,
+      "polygon": [
+        { "x": 0, "y": 0 },
+        { "x": 6, "y": 0 },
+        { "x": 6, "y": 6 },
+        { "x": 0, "y": 6 }
+      ],
+      "allowRotation": false
+    }
+  ],
+  "clearance": 0.125,
+  "mode": "fast",
+  "seed": 42
+}

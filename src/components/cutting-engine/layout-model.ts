@@ -1,0 +1,217 @@
+import type { SimplePartPreview, OffcutBand, PreviewItem } from "./nesting-visualizer-types"
+import type { SimpleCutDirection } from "./nesting-visualizer-types"
+
+/**
+ * Shape-family dispatch for the Konva renderer + PDF renderer.
+ *
+ * - Primitives that map to a Konva native shape: `rect`, `circle`,
+ *   `ellipse`, `ring`.
+ * - Primitives that Konva doesn't ship but we compose from a vertex
+ *   array: `trapezoid`, `sector`, `triangle`, `ngon`, `star`, and the
+ *   generic escape-hatch `polygon`. All of these require
+ *   `PlacedPart.polygon` to be populated at template-create time.
+ *
+ * Renderer dispatch lives in `KonvaSheetRenderer.PartShape`. Any
+ * shape in this union that does NOT have a first-class Konva
+ * primitive falls through to the polygon `<Line closed points>`
+ * path, then to `<Rect>` as a last-resort fallback.
+ */
+export type RenderShape =
+  | "rect"
+  | "circle"
+  | "ellipse"
+  | "ring"
+  | "trapezoid"
+  | "sector"
+  | "triangle"
+  | "ngon"
+  | "star"
+  | "polygon"
+
+export interface PlacedPart {
+  id: string
+  shapeId: string
+  partNumber?: string
+  label: string
+  renderShape: RenderShape
+  specIndex: number
+
+  /** Inches, sheet-space (post-rotation so Konva/PDF coords are final). */
+  x: number
+  y: number
+  rotationRad: number
+
+  width: number
+  height: number
+
+  diameter?: number
+  topWidth?: number
+  bottomWidth?: number
+  innerRadius?: number
+  outerRadius?: number
+  arcDegrees?: number
+
+  /** Actual placed polygon vertices (inches, post-rotation). Present for non-rect shapes. */
+  polygon?: Array<{ x: number; y: number }>
+  /**
+   * Optional debug overlay polygon when jagua's collision surface
+   * differs from the render shape. Today this is the cone convex-hull
+   * overlay in default packing; precise annular cone packing omits it.
+   */
+  packPolygon?: Array<{ x: number; y: number }>
+  cutDirection?: SimpleCutDirection
+  flipped?: boolean
+  rotated90?: boolean
+}
+
+export interface LayoutRegion {
+  x: number
+  y: number
+  width: number
+  height: number
+  polygon?: Array<{ x: number; y: number }>
+}
+
+export interface LayoutModel {
+  /** Display width in inches (post-rotation — what the user sees on screen). */
+  sheetWidth: number
+  /** Display length in inches (post-rotation). */
+  sheetLength: number
+
+  parts: PlacedPart[]
+  offcuts: LayoutRegion[]
+  /**
+   * Bin-wide free-space polygons (`BinResult.freeRegions`) — the
+   * Rust-side `stock − parts` boolean diff, CCW-wound. AutoNest paints
+   * each as the red waste pattern with placed parts AND reusable
+   * offcut rects punched out as evenodd holes. Painting the whole
+   * residual (not just the inscribed scrap rects) keeps the visual
+   * waste coverage consistent with the displayed `scrapAreaSqFt`
+   * total; the evenodd punch on amber rects prevents the original
+   * sub-grid red rim that drove the previous rect-only rendering.
+   */
+  scrap: LayoutRegion[]
+
+  /**
+   * Inscribed-rect debug overlay — every rectangle the Rust
+   * `extract_offcuts_with_obstacles` pass classified as Scrap (below
+   * Reusable thresholds). Production rendering ignores this; the
+   * AutoNest visualizer paints them with a dashed darker outline only
+   * when the operator toggles the "Show inscribed rects" tick. Useful
+   * for debugging the histogram + monotonic-stack extractor's output.
+   */
+  debugScrapRects?: LayoutRegion[]
+
+  placedCount: number
+  overflowCount: number
+  usedAreaSqFt: number
+  reusableAreaSqFt: number
+  scrapAreaSqFt: number
+  fabScore: number
+
+  /**
+   * Origin of this layout model.
+   * - `"ts-nfp"`: legacy TypeScript NFP greedy placer (being retired
+   *   in issue #12).
+   * - `"rust-rf-layout"`: Rust `pack_lbf_lns` pipeline via Tauri
+   *   `pack_job` invoke. Free-space polygons + classified offcuts
+   *   come back from `BinResult.freeRegions` / `BinResult.offcuts`.
+   */
+  source: "ts-nfp" | "rust-rf-layout"
+
+  /**
+   * Discriminator for synthetic post-pack sheets. Undefined / "standard"
+   * = a real packed bin. "offcut-extract" = a derived card that hoists
+   * a large reusable offcut out of its parent sheet for visual clarity.
+   * Synthetic sheets carry zero parts, zero used/scrap area, and a
+   * single full-sheet `offcuts[]` entry. Skip them when summing stock
+   * area in totals (parent already counted the stock).
+   */
+  sheetKind?: "standard" | "offcut-extract"
+
+  /**
+   * When `sheetKind === "offcut-extract"`, the index (0-based, within
+   * standard sheets only) of the parent layout this was hoisted from.
+   * Drives the "Reusable Offcut from Sheet N" header.
+   */
+  parentSheetIndex?: number
+}
+
+// ── Normaliser ───────────────────────────────────────────────────────────────
+
+function bandToRegion(b: OffcutBand): LayoutRegion {
+  return { x: b.x, y: b.y, width: b.width, height: b.height, polygon: b.polygon }
+}
+
+// Map the PreviewItem.renderShape strings (from the Auto-nest
+// NestingVisualizer pipeline) onto our RenderShape union. Keep this
+// narrow — new shapes added for Free-roam's shape library don't
+// need to round-trip through the Auto-nest preview path; they come
+// in via `PartTemplate` → manual placements instead.
+const RENDER_SHAPE_MAP: Record<string, RenderShape> = {
+  rect: "rect",
+  circle: "circle",
+  trapezoid: "trapezoid",
+  sector: "sector",
+}
+
+function itemToPlacedPart(
+  item: PreviewItem,
+  index: number,
+  tagMap: Map<string, string>
+): PlacedPart {
+  const tagKey = item.specIndex != null ? String(item.specIndex) : String(index)
+  const label = tagMap.get(tagKey) ?? tagKey
+  const renderShape: RenderShape = RENDER_SHAPE_MAP[item.renderShape] ?? "rect"
+
+  return {
+    id: `item:${index}`,
+    shapeId: item.partNumber ?? `spec-${item.specIndex ?? index}`,
+    partNumber: item.partNumber,
+    label,
+    renderShape,
+    specIndex: item.specIndex ?? 0,
+    x: item.x,
+    y: item.y,
+    rotationRad: item.rotation ?? 0,
+    width: item.width,
+    height: item.height,
+    diameter: item.diameter,
+    topWidth: item.topWidth,
+    bottomWidth: item.bottomWidth,
+    innerRadius: item.innerRadius,
+    outerRadius: item.outerRadius,
+    arcDegrees: item.arcDegrees,
+    polygon: item.placedPolygon,
+    cutDirection: item.cutDirection,
+    flipped: item.flipped,
+    rotated90: item.rotated90,
+  }
+}
+
+/**
+ * Convert a NestingVisualizer preview (already post-rotation) into a LayoutModel.
+ * `sheetW` / `sheetL` are the display dimensions in inches (post-rotation).
+ * `tagMap` is keyed by specIndex string → tag letter or part number.
+ */
+export function fromPreviewToLayoutModel(
+  preview: SimplePartPreview,
+  sheetW: number,
+  sheetL: number,
+  tagMap: Map<string, string>
+): LayoutModel {
+  return {
+    sheetWidth: sheetW,
+    sheetLength: sheetL,
+    parts: preview.items.map((item, i) => itemToPlacedPart(item, i, tagMap)),
+    offcuts: preview.offcutBands.map(bandToRegion),
+    scrap: preview.scrapBands.map(bandToRegion),
+    placedCount: preview.unitsCompleted,
+    overflowCount: preview.overflowUnits,
+    usedAreaSqFt: preview.usedArea / 144,
+    reusableAreaSqFt: preview.reusableArea / 144,
+    scrapAreaSqFt: preview.scrapArea / 144,
+    fabScore: (preview.fabricationScore ?? 0) / 100,
+    source: "ts-nfp",
+  }
+}

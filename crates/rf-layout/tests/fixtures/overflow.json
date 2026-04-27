@@ -1,0 +1,20 @@
+{
+  "_description": "Six 20x20 rects on a 48x48 fresh bin — only four can fit, two overflow",
+  "bins": [{ "binId": "b1", "width": 48, "height": 48, "kind": "fresh" }],
+  "items": [
+    {
+      "shapeId": "rect-a",
+      "quantity": 6,
+      "polygon": [
+        { "x": 0, "y": 0 },
+        { "x": 20, "y": 0 },
+        { "x": 20, "y": 20 },
+        { "x": 0, "y": 20 }
+      ],
+      "allowRotation": true
+    }
+  ],
+  "clearance": 0.125,
+  "mode": "fast",
+  "seed": 42
+}

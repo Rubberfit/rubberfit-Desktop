@@ -1,0 +1,23 @@
+{
+  "_description": "Fifteen 10x10 rects across a 48x20 remnant (priority 10) plus a 48x96 fresh bin; overflow spills to the fresh bin",
+  "bins": [
+    { "binId": "b1", "width": 48, "height": 20, "kind": "remnant", "priority": 10 },
+    { "binId": "b2", "width": 48, "height": 96, "kind": "fresh" }
+  ],
+  "items": [
+    {
+      "shapeId": "rect-a",
+      "quantity": 15,
+      "polygon": [
+        { "x": 0, "y": 0 },
+        { "x": 10, "y": 0 },
+        { "x": 10, "y": 10 },
+        { "x": 0, "y": 10 }
+      ],
+      "allowRotation": true
+    }
+  ],
+  "clearance": 0.125,
+  "mode": "fast",
+  "seed": 42
+}

@@ -164,19 +164,33 @@
   /*
    * Desktop shell: lock the document to the viewport so scrolling
    * only happens inside the React tree (managed by <main> and Konva).
-   * Without this, body/#root grow with their child's h-screen and
-   * the webview shows its own scrollbars on top of the in-app ones,
-   * with empty body background visible past the layout. On Windows
-   * the document vertical scrollbar also makes 100vw > content area,
-   * which is why a horizontal scrollbar appeared at smaller window
-   * sizes.
+   *
+   * `overflow: clip` (instead of `overflow: hidden`) is the key here:
+   * `hidden` still creates a scroll container, which means the browser
+   * can set body/html.scrollTop programmatically — e.g. when an
+   * sr-only checkbox in the parts grid receives focus and the WebView2
+   * `scrollIntoView` walks up the ancestor chain and scrolls body
+   * because the input's containing block is the initial containing
+   * block (no positioned ancestor). That was shifting the entire
+   * sidebar+main layout up by hundreds of pixels and leaving a white
+   * band where body had scrolled past its content. `overflow: clip`
+   * doesn't create a scroll container at all, so scrollTop is forced
+   * to 0 and the layout can never be displaced.
+   *
+   * Pinning #root with `position: fixed; inset: 0` is belt-and-
+   * suspenders — even if a future browser bug bypasses the clip, #root
+   * stays anchored to the viewport instead of shifting with body.
    */
   html,
-  body,
-  #root {
+  body {
     height: 100%;
     width: 100%;
-    overflow: hidden;
+    overflow: clip;
+  }
+  #root {
+    position: fixed;
+    inset: 0;
+    overflow: clip;
   }
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -225,33 +225,6 @@ export function AutoNestPage() {
   const tagByTemplateId = useMemo(() => {
     return new Map(selectedTemplates.map((t, i) => [t.id, tagMap.get(String(i)) ?? ""]))
   }, [selectedTemplates, tagMap])
-  const selectedTemplateCount = selectedTemplates.length
-  const partSelectionRef = useRef<HTMLDivElement | null>(null)
-  const partSelectionTopRef = useRef<number | null>(null)
-
-  const rememberPartSelectionPosition = useCallback(() => {
-    partSelectionTopRef.current = partSelectionRef.current?.getBoundingClientRect().top ?? null
-  }, [])
-
-  useLayoutEffect(() => {
-    const previousTop = partSelectionTopRef.current
-    const partSelection = partSelectionRef.current
-
-    if (previousTop === null || partSelection === null) {
-      return
-    }
-
-    const nextTop = partSelection.getBoundingClientRect().top
-    const offset = nextTop - previousTop
-
-    if (Math.abs(offset) > 0.5) {
-      const scroller = partSelection.closest("main") as HTMLElement | null
-      scroller?.scrollBy({ top: offset, left: 0, behavior: "auto" })
-    }
-
-    partSelectionTopRef.current = null
-  }, [selectedTemplateCount])
-
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleTemplateApply = useCallback((templates: PartTemplate[]) => {
@@ -538,7 +511,7 @@ export function AutoNestPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="mx-auto w-full max-w-[1540px] space-y-6 [overflow-anchor:none]">
+    <div className="mx-auto w-full max-w-[1540px] space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-2">
           <Badge variant="outline" className="w-fit">
@@ -621,18 +594,12 @@ export function AutoNestPage() {
         materialTypes={MATERIAL_TYPES}
       />
 
-      <div
-        ref={partSelectionRef}
-        onPointerDownCapture={rememberPartSelectionPosition}
-        onKeyDownCapture={rememberPartSelectionPosition}
-      >
-        <PresetDimensionSelector
-          onApply={handleTemplateApply}
-          rollWidth={stock.width}
-          rollLength={stock.length}
-          tagMap={tagByTemplateId}
-        />
-      </div>
+      <PresetDimensionSelector
+        onApply={handleTemplateApply}
+        rollWidth={stock.width}
+        rollLength={stock.length}
+        tagMap={tagByTemplateId}
+      />
 
       {selectedTemplates.length > 0 && selectedTemplate ? (
         <>

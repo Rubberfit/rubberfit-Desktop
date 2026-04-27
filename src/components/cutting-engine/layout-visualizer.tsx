@@ -355,13 +355,19 @@ function SheetHeader({
 // ── Legend ────────────────────────────────────────────────────────────────
 
 function Legend({ layouts }: { layouts: LayoutModel[] }) {
-  // Distinct (label, partNumber) pairs across all sheets.
+  // Distinct (tag, descriptor) pairs across all sheets. The descriptor
+  // is the part's *dimensions* — uploaded parts no longer carry a
+  // human-readable partNumber, and falling through to shapeId leaks
+  // internal IDs like "uploaded-1733000000000-0" into the legend.
+  // Showing dimensions matches the Reusable Offcuts card and the
+  // upload-review dialog and is the most useful identifier for an
+  // operator picking parts off the layout.
   const seen = new Map<string, string>()
   for (const layout of layouts) {
     for (const part of layout.parts) {
       const key = part.label
       if (!seen.has(key)) {
-        seen.set(key, part.partNumber ?? part.shapeId)
+        seen.set(key, partDimensionLabel(part))
       }
     }
   }
@@ -383,6 +389,43 @@ function Legend({ layouts }: { layouts: LayoutModel[] }) {
         ))}
     </div>
   )
+}
+
+/**
+ * Human-readable dimension label for a placed part. Mirrors the
+ * label format the upload-review dialog and the preset template grid
+ * use (width × length for rects, Ø for circles, top/bottom for
+ * trapezoids, etc.). Falls back to the placement bbox when the
+ * shape-specific fields aren't populated.
+ */
+function partDimensionLabel(part: PlacedPart): string {
+  switch (part.renderShape) {
+    case "circle":
+      if (part.diameter != null && part.diameter > 0) {
+        return `Ø${formatInches(part.diameter)}"`
+      }
+      break
+    case "trapezoid":
+      if (part.topWidth != null && part.bottomWidth != null) {
+        return `${formatInches(part.topWidth)}/${formatInches(part.bottomWidth)}" × ${formatInches(part.height)}"`
+      }
+      break
+    case "sector":
+      if (
+        part.innerRadius != null &&
+        part.outerRadius != null &&
+        part.arcDegrees != null
+      ) {
+        return `Cone R${formatInches(part.innerRadius)}-${formatInches(part.outerRadius)}" · ${formatInches(part.arcDegrees)}°`
+      }
+      break
+    case "ring":
+      if (part.innerRadius != null && part.outerRadius != null) {
+        return `Ring ${formatInches(part.innerRadius)}-${formatInches(part.outerRadius)}"`
+      }
+      break
+  }
+  return `${formatInches(part.width)}" × ${formatInches(part.height)}"`
 }
 
 const TAG_PILL_COLORS = [

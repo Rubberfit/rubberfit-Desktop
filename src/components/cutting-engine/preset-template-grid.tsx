@@ -92,7 +92,7 @@ export function PresetTemplateGrid({
         return (
           <label
             key={template.id}
-            className={`flex items-start gap-2.5 p-2.5 rounded-lg border transition-all duration-150 select-none ${
+            className={`flex min-h-[4.75rem] items-start gap-2.5 p-2.5 rounded-lg border transition-all duration-150 select-none ${
               disabled
                 ? "cursor-not-allowed opacity-50 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700"
                 : isChecked
@@ -162,7 +162,7 @@ export function PresetTemplateGrid({
                   )}
                 </div>
                 <div className="ml-auto flex flex-col items-end gap-1">
-                  {isChecked && (
+                  {isChecked ? (
                     <div className="inline-flex items-center gap-1">
                       <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
                         Qty
@@ -226,6 +226,8 @@ export function PresetTemplateGrid({
                         </button>
                       </div>
                     </div>
+                  ) : (
+                    <div className="h-5" aria-hidden="true" />
                   )}
                   {template.isCustom && (
                     <>

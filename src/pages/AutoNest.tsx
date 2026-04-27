@@ -39,6 +39,8 @@ import type { LayoutModel } from "@/components/cutting-engine/layout-model"
 import { usePackJob } from "@/components/cutting-engine/use-pack-job"
 import { promoteLargeOffcutsToSheets } from "@/components/cutting-engine/promote-large-offcuts"
 import { ReusableOffcutsCard } from "@/components/cutting-engine/reusable-offcuts-card"
+import { useSheetNav } from "@/lib/sheet-nav-context"
+import { formatInches } from "@/components/cutting-engine/format-inches"
 import { buildPart } from "@/lib/packing/buildPart"
 import type { Bin, ConePackingMode, Part } from "@/lib/packing/types"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -408,6 +410,37 @@ export function AutoNestPage() {
     [layouts, promoteLargeOffcuts]
   )
 
+  // Publish per-sheet jump-to entries to the global sidebar so operators
+  // can navigate a tall multi-sheet graph without manually scrolling.
+  // The visualizer wraps each sheet in a div with id="autonest-sheet-{i}";
+  // the sidebar's onClick scrollIntoView walks to that DOM node.
+  const { publish: publishSheetNav } = useSheetNav()
+  useEffect(() => {
+    if (packStatus !== "done" || visualizedLayouts.length === 0) {
+      publishSheetNav([])
+      return
+    }
+    let standardCounter = 0
+    const entries = visualizedLayouts.map((layout, i) => {
+      const isExtract = layout.sheetKind === "offcut-extract"
+      if (!isExtract) {
+        standardCounter++
+        return {
+          id: `autonest-sheet-${i}`,
+          label: `Sheet ${standardCounter}`,
+          kind: "standard" as const,
+        }
+      }
+      const parent = (layout.parentSheetIndex ?? 0) + 1
+      return {
+        id: `autonest-sheet-${i}`,
+        label: `Offcut · ${formatInches(layout.sheetWidth)}" × ${formatInches(layout.sheetLength)}" (Sheet ${parent})`,
+        kind: "offcut-extract" as const,
+      }
+    })
+    publishSheetNav(entries)
+  }, [visualizedLayouts, packStatus, publishSheetNav])
+
   // Pack-gate invalidation. Whenever any input that feeds the packer
   // changes, drop the gate back to `idle` and clear the prior layout's
   // metrics so the Export-PDF button doesn't promise a stale layout.
@@ -762,6 +795,7 @@ export function AutoNestPage() {
                   isPacking={isPacking}
                   packError={packError}
                   onMetricsChange={setCutMetrics}
+                  sheetIdPrefix="autonest-sheet"
                   debugOptions={{
                     showPackHullOverlay: canShowPackHullOverlay && showPackHullOverlay,
                     showInscribedScrapRects,

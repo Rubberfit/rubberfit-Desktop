@@ -17,12 +17,35 @@ import { partLabelCenter } from "./part-label"
 
 // ── Display constants ─────────────────────────────────────────────────────
 
-const VIEW_WIDTH = 980
-const VIEW_HEIGHT = 560
+// Floor for the SVG viewBox. Small sheets get this size so the
+// title / dimension labels have enough room; bigger sheets grow the
+// viewBox so the per-inch SVG-pixel density stays at MIN_PX_PER_INCH.
+// Without the per-sheet sizing a 120×96 sheet got ~4.9 screen px/inch
+// on the height axis (the fixed 1.75 aspect was wider than the sheet,
+// so the sheet was vertically pinned and laterally wasted half the
+// display width).
+const MIN_VIEW_WIDTH = 980
+const MIN_VIEW_HEIGHT = 560
+const MIN_PX_PER_INCH = 8
 const PAD_LEFT = 74
 const PAD_RIGHT = 112
 const PAD_TOP = 82
 const PAD_BOTTOM = 80
+
+function computeViewBoxDims(
+  sheetWidth: number,
+  sheetLength: number
+): { viewWidth: number; viewHeight: number } {
+  const viewWidth = Math.max(
+    MIN_VIEW_WIDTH,
+    Math.ceil(sheetWidth * MIN_PX_PER_INCH + PAD_LEFT + PAD_RIGHT)
+  )
+  const viewHeight = Math.max(
+    MIN_VIEW_HEIGHT,
+    Math.ceil(sheetLength * MIN_PX_PER_INCH + PAD_TOP + PAD_BOTTOM)
+  )
+  return { viewWidth, viewHeight }
+}
 
 // ── Public API ────────────────────────────────────────────────────────────
 
@@ -85,6 +108,13 @@ export interface LayoutVisualizerProps {
   onLayoutChange?: (layouts: LayoutModel[]) => void
   /** Diagnostic overlays. See {@link DebugOverlayOptions}. */
   debugOptions?: DebugOverlayOptions
+  /**
+   * When set, each sheet's wrapping div gets `id="${sheetIdPrefix}-${i}"`
+   * so external navigation (e.g. the global sidebar's sheet legend) can
+   * `scrollIntoView` to a specific sheet. Omit when the visualizer is
+   * embedded somewhere navigation isn't needed.
+   */
+  sheetIdPrefix?: string
 }
 
 export default function LayoutVisualizer({
@@ -96,6 +126,7 @@ export default function LayoutVisualizer({
   onMetricsChange,
   onLayoutChange,
   debugOptions,
+  sheetIdPrefix,
 }: LayoutVisualizerProps) {
   const patternSeed = useId().replace(/:/g, "")
   const sheets = layouts && layouts.length > 0 ? layouts : null
@@ -171,16 +202,18 @@ export default function LayoutVisualizer({
         {sheets.map((layout, i) => {
           const isExtract = layout.sheetKind === "offcut-extract"
           const standardNumber = isExtract ? undefined : ++standardCounter
+          const wrapperId = sheetIdPrefix ? `${sheetIdPrefix}-${i}` : undefined
           return (
-            <SheetSvg
-              key={`sheet-${i}`}
-              layout={layout}
-              totalSheets={sheets.length}
-              standardNumber={standardNumber}
-              standardTotal={standardTotal}
-              patternSeed={`${patternSeed}-s${i}`}
-              debugOptions={debugOptions}
-            />
+            <div key={`sheet-${i}`} id={wrapperId} style={{ scrollMarginTop: "1rem" }}>
+              <SheetSvg
+                layout={layout}
+                totalSheets={sheets.length}
+                standardNumber={standardNumber}
+                standardTotal={standardTotal}
+                patternSeed={`${patternSeed}-s${i}`}
+                debugOptions={debugOptions}
+              />
+            </div>
           )
         })}
       </div>
@@ -371,23 +404,62 @@ function Legend({ layouts }: { layouts: LayoutModel[] }) {
       }
     }
   }
+  // Hooks must be unconditional, so the empty-list short-circuit lives
+  // below the state hook.
+  const [open, setOpen] = useState(true)
   if (seen.size === 0) return null
+  // Sort by tag length first, then alphabetical, so A..Z come before
+  // AA..ZZ instead of "A, AA, AB, ..., AZ, B" — matches the order
+  // the auto-tagger generates them.
+  const entries = [...seen.entries()].sort(
+    (a, b) => a[0].length - b[0].length || a[0].localeCompare(b[0])
+  )
   return (
-    <div className="flex flex-wrap gap-3 border-b border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
-      {[...seen.entries()]
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([tag, label]) => (
-          <span key={tag} className="flex items-center gap-1.5">
-            <span
-              className="inline-flex h-5 w-5 items-center justify-center rounded border text-[10px] font-bold leading-none shadow-sm"
-              style={tagPillStyle(tag)}
-            >
-              {tag}
-            </span>
-            <span>{label}</span>
-          </span>
-        ))}
+    <div className="border-b border-border bg-muted/30 text-xs text-muted-foreground">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-4 py-2 text-left font-medium hover:bg-muted/60"
+        aria-expanded={open}
+      >
+        <ChevronGlyph open={open} />
+        <span>Cut Legend</span>
+        <span className="text-muted-foreground/70">
+          ({entries.length} {entries.length === 1 ? "tag" : "tags"})
+        </span>
+      </button>
+      {open && (
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 px-4 pb-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+          {entries.map(([tag, label]) => (
+            <div key={tag} className="flex items-center gap-2 overflow-hidden">
+              <span
+                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] font-bold leading-none shadow-sm"
+                style={tagPillStyle(tag)}
+              >
+                {tag}
+              </span>
+              <span className="truncate text-foreground" title={label}>
+                {label}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
+  )
+}
+
+function ChevronGlyph({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      aria-hidden="true"
+      className={`shrink-0 transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+    >
+      <path d="M3 1 L7 5 L3 9" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
   )
 }
 
@@ -537,12 +609,16 @@ function EmptySheet({
   sheetLength: number
   patternSeed: string
 }) {
-  const layout = computeSheetLayout(sheetWidth, sheetLength)
+  const { viewWidth, viewHeight } = computeViewBoxDims(sheetWidth, sheetLength)
+  const layout = computeSheetLayout(sheetWidth, sheetLength, viewWidth, viewHeight)
   const stockId = `stock-${patternSeed}`
   return (
-    <svg viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`} className="mx-auto block w-full max-w-6xl">
+    <svg
+      viewBox={`0 0 ${viewWidth} ${viewHeight}`}
+      className="mx-auto block w-full max-w-6xl"
+    >
       <PatternDefs patternSeed={patternSeed} />
-      <SheetTitle width={sheetWidth} length={sheetLength} />
+      <SheetTitle width={sheetWidth} length={sheetLength} viewWidth={viewWidth} />
       <rect
         x={layout.surfaceX}
         y={layout.surfaceY}
@@ -567,9 +643,14 @@ interface SheetLayout {
   surfacePxH: number
 }
 
-function computeSheetLayout(sheetWidth: number, sheetLength: number): SheetLayout {
-  const drawWidth = VIEW_WIDTH - PAD_LEFT - PAD_RIGHT
-  const drawHeight = VIEW_HEIGHT - PAD_TOP - PAD_BOTTOM
+function computeSheetLayout(
+  sheetWidth: number,
+  sheetLength: number,
+  viewWidth: number,
+  viewHeight: number
+): SheetLayout {
+  const drawWidth = viewWidth - PAD_LEFT - PAD_RIGHT
+  const drawHeight = viewHeight - PAD_TOP - PAD_BOTTOM
   const scale = Math.min(drawWidth / Math.max(sheetWidth, 1), drawHeight / Math.max(sheetLength, 1))
   const surfacePxW = sheetWidth * scale
   const surfacePxH = sheetLength * scale
@@ -595,14 +676,27 @@ function SheetSvg({
   patternSeed: string
   debugOptions?: DebugOverlayOptions
 }) {
-  const layout = useMemo(
-    () => computeSheetLayout(model.sheetWidth, model.sheetLength),
+  const { viewWidth, viewHeight } = useMemo(
+    () => computeViewBoxDims(model.sheetWidth, model.sheetLength),
     [model.sheetWidth, model.sheetLength]
+  )
+  const layout = useMemo(
+    () => computeSheetLayout(model.sheetWidth, model.sheetLength, viewWidth, viewHeight),
+    [model.sheetWidth, model.sheetLength, viewWidth, viewHeight]
   )
   const stockId = `stock-${patternSeed}`
   const offcutId = `offcut-${patternSeed}`
   const wasteId = `waste-${patternSeed}`
   const clipId = `stock-clip-${patternSeed}`
+  // Pan/zoom math + label centering reads these via refs so we don't
+  // close over a stale viewbox if a fresh pack swaps sheet dims under
+  // an existing svg ref.
+  const viewWidthRef = useRef(viewWidth)
+  const viewHeightRef = useRef(viewHeight)
+  useEffect(() => {
+    viewWidthRef.current = viewWidth
+    viewHeightRef.current = viewHeight
+  }, [viewWidth, viewHeight])
 
   // ── Zoom + pan ──
   const [zoom, setZoom] = useState(1)
@@ -633,17 +727,19 @@ function SheetSvg({
         if (next === prev) return prev
         const cur = panRef.current
         const rect = svg.getBoundingClientRect()
-        const vbW = VIEW_WIDTH / prev
-        const vbH = VIEW_HEIGHT / prev
+        const vw = viewWidthRef.current
+        const vh = viewHeightRef.current
+        const vbW = vw / prev
+        const vbH = vh / prev
         const fx = (e.clientX - rect.left) / rect.width
         const fy = (e.clientY - rect.top) / rect.height
         const sx = cur.x + fx * vbW
         const sy = cur.y + fy * vbH
-        const newVbW = VIEW_WIDTH / next
-        const newVbH = VIEW_HEIGHT / next
+        const newVbW = vw / next
+        const newVbH = vh / next
         setPan({
-          x: Math.max(0, Math.min(sx - fx * newVbW, VIEW_WIDTH - newVbW)),
-          y: Math.max(0, Math.min(sy - fy * newVbH, VIEW_HEIGHT - newVbH)),
+          x: Math.max(0, Math.min(sx - fx * newVbW, vw - newVbW)),
+          y: Math.max(0, Math.min(sy - fy * newVbH, vh - newVbH)),
         })
         return next
       })
@@ -667,21 +763,23 @@ function SheetSvg({
     const svg = svgRef.current
     if (!svg) return
     const rect = svg.getBoundingClientRect()
-    const vbW = VIEW_WIDTH / zoomRef.current
-    const vbH = VIEW_HEIGHT / zoomRef.current
+    const vw = viewWidthRef.current
+    const vh = viewHeightRef.current
+    const vbW = vw / zoomRef.current
+    const vbH = vh / zoomRef.current
     const dx = ((e.clientX - dragRef.current.startX) / rect.width) * vbW
     const dy = ((e.clientY - dragRef.current.startY) / rect.height) * vbH
     setPan({
-      x: Math.max(0, Math.min(dragRef.current.startPanX - dx, VIEW_WIDTH - vbW)),
-      y: Math.max(0, Math.min(dragRef.current.startPanY - dy, VIEW_HEIGHT - vbH)),
+      x: Math.max(0, Math.min(dragRef.current.startPanX - dx, vw - vbW)),
+      y: Math.max(0, Math.min(dragRef.current.startPanY - dy, vh - vbH)),
     })
   }, [])
   const onPointerUp = useCallback(() => {
     dragRef.current = null
   }, [])
 
-  const vbW = VIEW_WIDTH / zoom
-  const vbH = VIEW_HEIGHT / zoom
+  const vbW = viewWidth / zoom
+  const vbH = viewHeight / zoom
   const isMulti = totalSheets > 1
   const isExtract = model.sheetKind === "offcut-extract"
 
@@ -723,6 +821,7 @@ function SheetSvg({
         <SheetTitle
           width={model.sheetWidth}
           length={model.sheetLength}
+          viewWidth={viewWidth}
           variant={isExtract ? "offcut-extract" : "stock"}
         />
         <clipPath id={clipId}>
@@ -1403,10 +1502,12 @@ function PatternDefs({ patternSeed }: { patternSeed: string }) {
 function SheetTitle({
   width,
   length,
+  viewWidth,
   variant = "stock",
 }: {
   width: number
   length: number
+  viewWidth: number
   variant?: "stock" | "offcut-extract"
 }) {
   const title = variant === "offcut-extract" ? "Reusable Offcut" : "Rubber Sheet Nesting Layout"
@@ -1417,7 +1518,7 @@ function SheetTitle({
   return (
     <>
       <text
-        x={VIEW_WIDTH / 2}
+        x={viewWidth / 2}
         y="34"
         textAnchor="middle"
         className="fill-foreground"
@@ -1427,7 +1528,7 @@ function SheetTitle({
         {title}
       </text>
       <text
-        x={VIEW_WIDTH / 2}
+        x={viewWidth / 2}
         y="60"
         textAnchor="middle"
         className="fill-muted-foreground"

@@ -1,7 +1,10 @@
+import { useEffect, useState } from "react"
 import { Minus, Pencil, Plus } from "lucide-react"
 import type { PartTemplate } from "./preset-template-data"
 import { CAT_BADGE } from "./preset-template-data"
 import { getTemplateAreaSqFt } from "./preset-utils"
+
+const MAX_TEMPLATE_QUANTITY = 1000
 
 interface PresetTemplateGridProps {
   visible: PartTemplate[]
@@ -28,16 +31,68 @@ export function PresetTemplateGrid({
   tagMap,
   fitsStock,
 }: PresetTemplateGridProps) {
+  const [quantityDrafts, setQuantityDrafts] = useState<Map<string, string>>(new Map())
+
+  useEffect(() => {
+    setQuantityDrafts((previous) => {
+      let changed = false
+      const next = new Map(previous)
+      for (const templateId of previous.keys()) {
+        if (!checked.has(templateId)) {
+          next.delete(templateId)
+          changed = true
+        }
+      }
+      return changed ? next : previous
+    })
+  }, [checked])
+
+  const clearQuantityDraft = (templateId: string) => {
+    setQuantityDrafts((previous) => {
+      if (!previous.has(templateId)) return previous
+      const next = new Map(previous)
+      next.delete(templateId)
+      return next
+    })
+  }
+
+  const handleQuantityInputChange = (templateId: string, value: string) => {
+    if (!/^\d*$/.test(value)) return
+
+    const normalizedDraft =
+      value === "" ? "" : String(Math.min(MAX_TEMPLATE_QUANTITY, Number.parseInt(value, 10)))
+
+    setQuantityDrafts((previous) => {
+      const next = new Map(previous)
+      next.set(templateId, normalizedDraft)
+      return next
+    })
+
+    if (normalizedDraft !== "") {
+      onQuantityChange(templateId, Number.parseInt(normalizedDraft, 10))
+    }
+  }
+
+  const handleQuantityInputBlur = (templateId: string, value: string) => {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isFinite(parsed)) {
+      onQuantityChange(templateId, Math.max(1, Math.min(MAX_TEMPLATE_QUANTITY, parsed)))
+    }
+    clearQuantityDraft(templateId)
+  }
+
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
       {visible.map((template) => {
         const isChecked = checked.has(template.id)
         const fits = fitsStock ? fitsStock(template) : true
         const disabled = !fits
+        const currentQuantity = quantities.get(template.id) ?? 1
+        const quantityValue = quantityDrafts.get(template.id) ?? String(currentQuantity)
         return (
           <label
             key={template.id}
-            className={`flex items-start gap-2.5 p-2.5 rounded-lg border transition-all duration-150 select-none ${
+            className={`flex min-h-[4.75rem] items-start gap-2.5 p-2.5 rounded-lg border transition-all duration-150 select-none ${
               disabled
                 ? "cursor-not-allowed opacity-50 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700"
                 : isChecked
@@ -107,7 +162,7 @@ export function PresetTemplateGrid({
                   )}
                 </div>
                 <div className="ml-auto flex flex-col items-end gap-1">
-                  {isChecked && (
+                  {isChecked ? (
                     <div className="inline-flex items-center gap-1">
                       <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
                         Qty
@@ -119,24 +174,51 @@ export function PresetTemplateGrid({
                           onClick={(event) => {
                             event.preventDefault()
                             event.stopPropagation()
-                            const current = quantities.get(template.id) ?? 1
-                            onQuantityChange(template.id, Math.max(1, current - 1))
+                            clearQuantityDraft(template.id)
+                            onQuantityChange(template.id, Math.max(1, currentQuantity - 1))
                           }}
                           className="flex h-5 w-5 items-center justify-center text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
                         >
                           <Minus className="h-3 w-3" />
                         </button>
-                        <span className="min-w-[1.25rem] text-center text-xs font-semibold tabular-nums">
-                          {quantities.get(template.id) ?? 1}
-                        </span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          aria-label={`Quantity for ${template.label}`}
+                          value={quantityValue}
+                          onClick={(event) => event.stopPropagation()}
+                          onFocus={(event) => {
+                            event.stopPropagation()
+                            event.currentTarget.select()
+                          }}
+                          onChange={(event) => {
+                            event.stopPropagation()
+                            handleQuantityInputChange(template.id, event.currentTarget.value)
+                          }}
+                          onBlur={(event) => {
+                            handleQuantityInputBlur(template.id, event.currentTarget.value)
+                          }}
+                          onKeyDown={(event) => {
+                            event.stopPropagation()
+                            if (event.key === "Enter") {
+                              event.preventDefault()
+                              event.currentTarget.blur()
+                            }
+                          }}
+                          className="h-5 w-11 border-x border-slate-200 bg-transparent p-0 text-center text-xs font-semibold tabular-nums outline-none focus:bg-white focus:ring-1 focus:ring-blue-400 dark:border-slate-600 dark:focus:bg-slate-800"
+                        />
                         <button
                           type="button"
                           aria-label="Increase quantity"
                           onClick={(event) => {
                             event.preventDefault()
                             event.stopPropagation()
-                            const current = quantities.get(template.id) ?? 1
-                            onQuantityChange(template.id, Math.min(99, current + 1))
+                            clearQuantityDraft(template.id)
+                            onQuantityChange(
+                              template.id,
+                              Math.min(MAX_TEMPLATE_QUANTITY, currentQuantity + 1)
+                            )
                           }}
                           className="flex h-5 w-5 items-center justify-center text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
                         >
@@ -144,6 +226,8 @@ export function PresetTemplateGrid({
                         </button>
                       </div>
                     </div>
+                  ) : (
+                    <div className="h-5" aria-hidden="true" />
                   )}
                   {template.isCustom && (
                     <>

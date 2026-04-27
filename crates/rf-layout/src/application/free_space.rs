@@ -698,6 +698,103 @@ mod tests {
         }
     }
 
+    /// Issue B regression. The user's repro: 3 stacked rect placements
+    /// where each polygon's right edge lands a hair past x=6 due to
+    /// LBF's f32 rotation noise (e.g. x=6.0068). Pre-fix, the snap
+    /// returned a Reusable rect at x=6 / w=18, overlapping the parts
+    /// by ~0.007". Post-fix, the snap pulls the rect's left edge inward
+    /// to obstacle.x_max + EPS so it never crosses any part polygon.
+    #[test]
+    fn reusable_offcut_does_not_overlap_jagua_rotated_rect_polygons() {
+        let bin = fresh_bin("b1", 24.0, 24.0);
+        // Three polygons mirroring jagua's f32-rotated 6×6 placements
+        // (slightly skewed top/bottom edges, max x ≈ 6.007).
+        let p1 = Placement {
+            shape_id: "rect-a".into(),
+            instance_index: 0,
+            bin_id: "b1".into(),
+            x: 6.0022,
+            y: 0.1524,
+            rotation_rad: std::f64::consts::FRAC_PI_2,
+            polygon: vec![
+                Point2D::new(6.002192, 0.152377),
+                Point2D::new(6.000084, 6.152377),
+                Point2D::new(0.000085, 6.150269),
+                Point2D::new(0.002193, 0.150269),
+            ],
+            width: 6.0,
+            height: 6.0,
+            difficulty: None,
+            tag: None,
+            pack_polygon: None,
+        };
+        let p2 = Placement {
+            shape_id: "rect-a".into(),
+            instance_index: 1,
+            bin_id: "b1".into(),
+            x: 6.0012,
+            y: 12.278,
+            rotation_rad: -std::f64::consts::PI,
+            polygon: vec![
+                Point2D::new(6.001182, 12.278025),
+                Point2D::new(0.001182, 12.277377),
+                Point2D::new(0.001829, 6.277377),
+                Point2D::new(6.001829, 6.278025),
+            ],
+            width: 6.0,
+            height: 6.0,
+            difficulty: None,
+            tag: None,
+            pack_polygon: None,
+        };
+        let p3 = Placement {
+            shape_id: "rect-a".into(),
+            instance_index: 2,
+            bin_id: "b1".into(),
+            x: 6.0068,
+            y: 18.403,
+            rotation_rad: std::f64::consts::PI,
+            polygon: vec![
+                Point2D::new(6.006848, 18.403025),
+                Point2D::new(0.006848, 18.403172),
+                Point2D::new(0.006701, 12.403172),
+                Point2D::new(6.006701, 12.403025),
+            ],
+            width: 6.0,
+            height: 6.0,
+            difficulty: None,
+            tag: None,
+            pack_polygon: None,
+        };
+
+        let (_regions, offcuts) = extract_free_space_two_signal(&bin, &[&p1, &p2, &p3]);
+
+        // Maximum x reached by any part polygon.
+        let max_part_x = [&p1, &p2, &p3]
+            .iter()
+            .flat_map(|p| p.polygon.iter())
+            .map(|v| v.x)
+            .fold(f64::NEG_INFINITY, f64::max);
+
+        let reusable: Vec<&ClassifiedOffcut> = offcuts
+            .iter()
+            .filter(|o| o.kind == OffcutKind::Reusable)
+            .collect();
+        assert!(
+            !reusable.is_empty(),
+            "expected at least one Reusable offcut, got {} total",
+            offcuts.len()
+        );
+        for o in reusable {
+            assert!(
+                o.x >= max_part_x - 1e-6,
+                "Reusable offcut at x={} crosses into parts (max part x={})",
+                o.x,
+                max_part_x,
+            );
+        }
+    }
+
     // ── Two-signal pipeline coverage ──────────────────────────────
 
     /// Build an annular sector polygon (outer arc + inner arc reversed),

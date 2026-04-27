@@ -28,6 +28,7 @@ const DEFAULT_STOCK: StockConfig = {
   length: 48,
   material: "",
   thickness: 0.5,
+  kerf: 0.125,
 }
 
 // Sample parts seeded so the operator has something to click-place

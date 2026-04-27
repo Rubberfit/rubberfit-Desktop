@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -28,6 +28,12 @@ import {
   getDefaultCutDirection,
   parseCutRatios,
 } from "@/components/cutting-engine/cut-planner-utils"
+import { strategyFor } from "@/components/cutting-engine/bin-allocation-strategy"
+import {
+  MAX_SHEETS,
+  estimateSheetCount,
+  estimateTotalPartAreaSqIn,
+} from "@/components/cutting-engine/auto-fill-bin-allocator"
 import { buildCutPdf } from "@/components/cutting-engine/cut-history-pdf"
 import type { LayoutModel } from "@/components/cutting-engine/layout-model"
 import { usePackJob } from "@/components/cutting-engine/use-pack-job"
@@ -51,6 +57,7 @@ const DEMO_STOCK: StockConfig = {
   length: 48,
   material: "",
   thickness: 0.5,
+  kerf: 0.125,
 }
 
 // Desktop has no DB-backed material catalog yet. Empty array keeps
@@ -181,6 +188,11 @@ export function AutoNestPage() {
   const [showInscribedScrapRects, setShowInscribedScrapRects] = useState(false)
   const [showAabbOverlays, setShowAabbOverlays] = useState(false)
   const [conePackingMode, setConePackingMode] = useState<ConePackingMode>("annularSector")
+  // Option C toggle: pre-place rect items via greedy warm-start before
+  // jagua's LBF samples. Defaults to true (production behavior). Toggle
+  // off to compare timing against the legacy probabilistic-only
+  // pipeline. Forwarded to the Rust packer as PackRequest.useWarmStart.
+  const [useWarmStart, setUseWarmStart] = useState(true)
   const { status: packStatus, requestPack, invalidate } = usePackGate()
 
   const selectedTemplates = useMemo(
@@ -213,7 +225,6 @@ export function AutoNestPage() {
   const tagByTemplateId = useMemo(() => {
     return new Map(selectedTemplates.map((t, i) => [t.id, tagMap.get(String(i)) ?? ""]))
   }, [selectedTemplates, tagMap])
-
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleTemplateApply = useCallback((templates: PartTemplate[]) => {
@@ -306,19 +317,24 @@ export function AutoNestPage() {
     [selectedTemplates, tagByTemplateId]
   )
 
-  // One bin per stock sheet. Phase A's pack_lbf_lns processes a
-  // single-bin request directly; multi-bin (overflow → next sheet)
-  // can be wired by extending this array later.
+  // Auto-fill multi-sheet packing. The allocator estimates sheet count
+  // from total part area / sheet area × SAFETY_FACTOR (≈1.54×), then
+  // emits N identical Bin entries that jagua-rs's BPInstance packs in
+  // one shot. Empty bins cost microseconds and are filtered out
+  // downstream in usePackJob before the visualizer sees them. When the
+  // initial estimate under-allocates, the auto-boost effect below adds
+  // more sheets and re-packs silently — overflow never reaches the UI
+  // unless the packer can't fit everything within MAX_SHEETS.
+  const allocator = useMemo(() => strategyFor("autoFill"), [])
+  const [autoBoost, setAutoBoost] = useState(0)
   const packBins = useMemo<Bin[]>(
-    () => [
-      {
-        binId: "stock-1",
-        width: stock.width,
-        height: stock.length,
-        kind: "fresh",
-      },
-    ],
-    [stock.width, stock.length]
+    () =>
+      allocator.allocate({
+        stock,
+        templates: selectedTemplates,
+        manualBoost: autoBoost,
+      }),
+    [allocator, stock, selectedTemplates, autoBoost]
   )
 
   // Drive the Rust pack only when the gate has flipped to "done".
@@ -330,11 +346,12 @@ export function AutoNestPage() {
   } = usePackJob({
     bins: packBins,
     parts: packParts,
-    clearance: 0.125,
+    clearance: stock.kerf,
     templates: selectedTemplates,
     tagByShapeId: tagByTemplateId,
     enabled: packStatus === "done",
     conePackingMode,
+    useWarmStart,
   })
 
   // Whether any selected/uploaded part is a cone — gates the cone
@@ -354,10 +371,81 @@ export function AutoNestPage() {
   // (usePackJob owns the layouts state; it stops returning fresh data
   // once `enabled` flips to false on the next render.) The operator
   // must press Pack again to recompute.
+  // capToastFiredRef gates the "couldn't fit" toast so we only warn
+  // once per cap-out, not on every re-render. Reset alongside autoBoost
+  // when templates/stock change so the next job starts fresh.
+  const capToastFiredRef = useRef(false)
+  // Tracks the last `layouts` reference we boosted for. Without this, the
+  // auto-boost effect can fire multiple times for a single overflow event
+  // (when packBins.length is in the dep array, bumping autoBoost itself
+  // re-triggers the effect with stale `layouts` still showing the same
+  // overflow). Each LayoutModel[] identity earns at most one boost.
+  const lastBoostedLayoutsRef = useRef<LayoutModel[] | null>(null)
   useEffect(() => {
     invalidate()
     setCutMetrics(null)
-  }, [selectedTemplates, stock, cutDirection, customCutRatios, conePackingMode, invalidate])
+    setAutoBoost(0)
+    capToastFiredRef.current = false
+    lastBoostedLayoutsRef.current = null
+  }, [
+    selectedTemplates,
+    stock,
+    cutDirection,
+    customCutRatios,
+    conePackingMode,
+    useWarmStart,
+    invalidate,
+  ])
+
+  // Total parts that overflowed the current allocation. Used both by
+  // the auto-boost effect and by the Export PDF gate (we hide the
+  // button while a re-pack is imminent so it doesn't flash on screen).
+  const totalOverflow = useMemo(() => layouts.reduce((s, l) => s + l.overflowCount, 0), [layouts])
+
+  // True when the auto-boost will trigger another pack on the next
+  // render. Keeps Export PDF + other "done" affordances hidden across
+  // the auto-boost cycle so they don't flash between packs.
+  const autoBoostPending = totalOverflow > 0 && packBins.length < MAX_SHEETS
+
+  // Auto-boost. If the initial heuristic under-allocates, silently add
+  // the missing sheets and re-pack until everything fits. When we hit
+  // MAX_SHEETS with overflow remaining, the packer genuinely couldn't
+  // fit everything — surface that as a one-time toast so the operator
+  // knows the result is incomplete. (Future: same toast when overflow
+  // exceeds a user-defined sheet cap once fixed-count mode lands.)
+  useEffect(() => {
+    if (totalOverflow === 0) return
+    // Bail if we already boosted for this exact `layouts` reference.
+    // Prevents the chain-reaction where bumping autoBoost re-triggers
+    // this effect (via packBins.length in the dep array) before the
+    // next pack has cleared `layouts`, causing a single 3-overflow
+    // event to fire 2-3 boosts and over-allocate sheets.
+    if (lastBoostedLayoutsRef.current === layouts) return
+
+    if (packBins.length >= MAX_SHEETS) {
+      if (!capToastFiredRef.current) {
+        toast.warning(
+          `${totalOverflow} part${totalOverflow === 1 ? "" : "s"} couldn't fit on ${MAX_SHEETS} sheets`,
+          {
+            description: "Reduce part count, use larger stock, or split the job.",
+          }
+        )
+        capToastFiredRef.current = true
+      }
+      lastBoostedLayoutsRef.current = layouts
+      return
+    }
+    const totalRequestedArea = estimateTotalPartAreaSqIn(selectedTemplates)
+    const totalRequestedQty = selectedTemplates.reduce((s, t) => s + Math.max(1, t.quantity), 0)
+    const avgPartArea = totalRequestedQty > 0 ? totalRequestedArea / totalRequestedQty : 0
+    const overflowArea = totalOverflow * avgPartArea
+    const additionalSheets = Math.max(
+      1,
+      estimateSheetCount(overflowArea, stock.width, stock.length) - 1
+    )
+    lastBoostedLayoutsRef.current = layouts
+    setAutoBoost((b) => b + additionalSheets)
+  }, [totalOverflow, layouts, selectedTemplates, stock.width, stock.length, packBins.length])
 
   const totalRequestedCuts = useMemo(
     () => selectedTemplates.reduce((sum, t) => sum + Math.max(1, t.quantity), 0),
@@ -423,7 +511,7 @@ export function AutoNestPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-[1540px] space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-2">
           <Badge variant="outline" className="w-fit">
@@ -575,7 +663,17 @@ export function AutoNestPage() {
                     />
                     Show AABBs
                   </label>
-                  {cutMetrics !== null && cutMetrics.partsCompleted > 0 && (
+                  <label
+                    className="flex items-center gap-2 text-xs text-muted-foreground"
+                    title="Option C: pre-place rectangles deterministically before LBF samples. Toggle off to compare timing against the legacy probabilistic-only pipeline."
+                  >
+                    <Checkbox
+                      checked={useWarmStart}
+                      onCheckedChange={(v) => setUseWarmStart(v === true)}
+                    />
+                    Rect warm-start
+                  </label>
+                  {cutMetrics !== null && cutMetrics.partsCompleted > 0 && !autoBoostPending && (
                     <Button size="sm" onClick={handleExportPdf} disabled={isExporting}>
                       <FileDown className="mr-1.5 h-4 w-4" />
                       {isExporting ? "Saving…" : "Export PDF"}

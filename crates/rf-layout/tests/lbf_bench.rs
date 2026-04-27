@@ -201,6 +201,7 @@ fn pack_lbf_lns_vs_pack_lbf_on_production_fixture() {
         cone_packing_mode: None,
         scrap_strategy: None,
         offcut_extraction_strategy: None,
+        use_warm_start: None,
     };
 
     println!(
@@ -288,6 +289,7 @@ fn pack_lbf_two_bin_fab_score_comparison() {
         cone_packing_mode: None,
         scrap_strategy: None,
         offcut_extraction_strategy: None,
+        use_warm_start: None,
     };
 
     println!(
@@ -401,6 +403,7 @@ fn pack_lbf_vs_pack_on_production_fixture() {
         cone_packing_mode: None,
         scrap_strategy: None,
         offcut_extraction_strategy: None,
+        use_warm_start: None,
     };
 
     println!(
@@ -440,6 +443,7 @@ fn pack_lbf_vs_pack_on_production_fixture() {
         n_samples: 5000,
         ls_frac: 0.2,
         multistart_seeds: 20,
+        use_warm_start: true,
     };
     let lbf20_start = Instant::now();
     let lbf20_result = pack_lbf_with_config(request.clone(), cfg20).unwrap();

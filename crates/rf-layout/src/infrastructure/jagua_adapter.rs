@@ -1,13 +1,66 @@
 // engine/crates/rf-layout/src/infrastructure/jagua_adapter.rs
 use crate::domain::{Bin, PackError, Part};
+use crate::infrastructure::warm_start::SeedPlacement;
 
 use jagua_rs::collision_detection::CDEConfig;
 use jagua_rs::geometry::fail_fast::SPSurrogateConfig;
+use jagua_rs::geometry::DTransformation;
 use jagua_rs::io::ext_repr::{ExtContainer, ExtItem as BaseExtItem, ExtSPolygon, ExtShape};
 use jagua_rs::io::import::Importer;
-use jagua_rs::probs::bpp::entities::BPInstance;
+use jagua_rs::probs::bpp::entities::{BPInstance, BPLayoutType, BPPlacement};
 use jagua_rs::probs::bpp::io::ext_repr::{ExtBPInstance, ExtBin, ExtItem as BpExtItem};
 use jagua_rs::probs::bpp::io::import_instance;
+
+/// Translate a jagua `DTransformation` by `(dx, dy)` in the world frame.
+///
+/// Used by every placement-construction site to undo the bin-expansion
+/// shift introduced in `build_ext_bin`. The expansion grows each bin by
+/// `clearance` on every side so jagua's `min_item_separation` keeps items
+/// `clearance` away from the EXPANDED walls, which puts them flush against
+/// the original walls once we shift placements back by `-clearance`. A
+/// single helper guarantees every translation site applies the same shift
+/// and stays in sync if the expansion factor changes.
+pub fn shift_dtransformation(t: &DTransformation, dx: f32, dy: f32) -> DTransformation {
+    DTransformation::new(
+        t.rotation.into_inner(),
+        (
+            t.translation.0.into_inner() + dx,
+            t.translation.1.into_inner() + dy,
+        ),
+    )
+}
+
+/// Convert a greedy `SeedPlacement` (world bbox-min coords, post-greedy
+/// wall-margin offset) into a jagua `BPPlacement` whose `d_transf`
+/// translation places the polygon centroid in jagua's expanded-bin
+/// coordinate frame.
+///
+/// The math relies on two offsets cancelling exactly:
+///   - greedy_rectangle_pack returns `seed.x = bbox_min_x + clearance`
+///     because it adds a wall-margin to bin-packing's inner-area coords
+///     (warm_start.rs:338-339).
+///   - jagua's `build_ext_bin` expands the bin by `clearance` on every
+///     side, so jagua coords are `world + clearance`.
+///
+/// Net: `jagua_translation = (seed.bbox_min - clearance) + dims/2 +
+/// clearance = seed.bbox_min + dims/2`. The two clearance terms cancel,
+/// so a flush-corner placement just needs `seed.x + width/2`.
+///
+/// Used by Option C's greedy warm-start in `pack_lbf` to pre-load
+/// rectangle placements into jagua's BPProblem before LBF::solve() runs.
+pub fn seed_to_bp_placement(
+    seed: &SeedPlacement,
+    item_id: usize,
+    layout_id: BPLayoutType,
+) -> BPPlacement {
+    let tx = (seed.x + seed.width / 2.0) as f32;
+    let ty = (seed.y + seed.height / 2.0) as f32;
+    BPPlacement {
+        layout_id,
+        item_id,
+        d_transf: DTransformation::new(seed.rotation_rad as f32, (tx, ty)),
+    }
+}
 
 /// Guard an f64 -> f32 narrowing conversion against NaN, infinity, and values
 /// outside f32's representable range. jagua-rs operates in f32, so we reject
@@ -102,7 +155,7 @@ pub fn to_jagua_instance(
     let ext_bins: Vec<ExtBin> = bins
         .iter()
         .enumerate()
-        .map(|(idx, b)| build_ext_bin(idx as u64, b))
+        .map(|(idx, b)| build_ext_bin(idx as u64, b, clearance))
         .collect::<Result<_, _>>()?;
 
     let ext_instance = ExtBPInstance {
@@ -172,15 +225,24 @@ fn build_ext_item(id: u64, part: &Part) -> Result<BpExtItem, PackError> {
     })
 }
 
-fn build_ext_bin(id: u64, bin: &Bin) -> Result<ExtBin, PackError> {
+fn build_ext_bin(id: u64, bin: &Bin, clearance: f64) -> Result<ExtBin, PackError> {
+    // Expand the bin by `clearance` on every side. jagua's
+    // `min_item_separation` enforcement keeps items at least `clearance`
+    // away from the EXPANDED walls, which puts them flush against the
+    // original walls after `snapshot_to_placements` shifts coordinates
+    // back. Inter-item kerf separation is preserved (jagua keeps that
+    // between items independently). Operators don't trim sheet edges,
+    // so wall-flush placement matches physical reality.
+    let expanded_width = finite_f32(bin.width + 2.0 * clearance, "bin.width + 2*clearance")?;
+    let expanded_height = finite_f32(bin.height + 2.0 * clearance, "bin.height + 2*clearance")?;
     Ok(ExtBin {
         base: ExtContainer {
             id,
             shape: ExtShape::Rectangle {
                 x_min: 0.0,
                 y_min: 0.0,
-                width: finite_f32(bin.width, "bin.width")?,
-                height: finite_f32(bin.height, "bin.height")?,
+                width: expanded_width,
+                height: expanded_height,
             },
             zones: vec![],
         },

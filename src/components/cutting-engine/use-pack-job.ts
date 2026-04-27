@@ -83,6 +83,13 @@ export interface UsePackJobInput {
    * default (`convexHull`).
    */
   conePackingMode?: ConePackingMode
+  /**
+   * Option C toggle: forwarded as `PackRequest.useWarmStart`. Controls
+   * whether the Rust packer pre-places rect-shaped items via a
+   * deterministic greedy warm-start before LBF samples. When undefined,
+   * the Rust default (true) applies.
+   */
+  useWarmStart?: boolean
 }
 
 export interface UsePackJobOutput {
@@ -110,6 +117,7 @@ export function usePackJob({
   enabled,
   coneStrategy,
   conePackingMode,
+  useWarmStart,
 }: UsePackJobInput): UsePackJobOutput {
   const [layouts, setLayouts] = useState<LayoutModel[] | null>(null)
   const [isPacking, setIsPacking] = useState(false)
@@ -141,8 +149,9 @@ export function usePackJob({
         clearance,
         coneStrategy: coneStrategy ?? null,
         conePackingMode: conePackingMode ?? null,
+        useWarmStart: useWarmStart ?? null,
       }),
-    [bins, parts, clearance, coneStrategy, conePackingMode]
+    [bins, parts, clearance, coneStrategy, conePackingMode, useWarmStart]
   )
 
   // Track latest run so a stale resolve doesn't clobber a newer run's
@@ -195,13 +204,33 @@ export function usePackJob({
           : (coneStrategy ?? getConeStrategyFromUrl())
       if (resolvedConeStrategy) request.coneStrategy = resolvedConeStrategy
 
+      // Option C toggle: forwarded as PackRequest.useWarmStart. When
+      // undefined, Rust applies its default (true). Explicit false
+      // disables the warm-start so the operator can compare against
+      // the legacy probabilistic-only pipeline.
+      if (useWarmStart !== undefined) request.useWarmStart = useWarmStart
+
       try {
         const result = await getPackingService().pack(request)
         if (runIdRef.current !== runId) return
         const next = packResultToLayoutModel(result, request, templates, {
           tagByShapeId,
         })
-        setLayouts(next)
+        // Filter empty bins. The auto-fill allocator deliberately
+        // over-allocates (~1.54×) so jagua never starves; the empties
+        // shouldn't reach the visualizer as blank "Sheet N of M" cards.
+        const nonEmpty = next.filter((m) => m.placedCount > 0)
+        // Rust reports overflow as a single job-level count. Attach it
+        // to the last surviving layout so the visualizer's existing
+        // partsOverflow accumulator and AutoNest's overflow toast both
+        // see it. The adapter sets overflowCount: 0 on every layout to
+        // preserve its 1-bin → 1-LayoutModel contract; this is where
+        // the job-level total enters the visible model.
+        if (nonEmpty.length > 0 && result.overflowCount > 0) {
+          const last = nonEmpty.length - 1
+          nonEmpty[last] = { ...nonEmpty[last], overflowCount: result.overflowCount }
+        }
+        setLayouts(nonEmpty)
         setIsPacking(false)
       } catch (err) {
         if (runIdRef.current !== runId) return

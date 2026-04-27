@@ -305,6 +305,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         assert!(matches!(pack(req), Err(PackError::NoBins)));
     }
@@ -326,6 +327,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         assert!(matches!(pack(req), Err(PackError::NoItems)));
     }
@@ -347,6 +349,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 3);
@@ -372,6 +375,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         let a_indices: Vec<u32> = result
@@ -408,6 +412,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 2);
@@ -431,6 +436,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         assert!(
@@ -473,6 +479,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(
@@ -481,6 +488,308 @@ mod tests {
             result.overflow_count
         );
         assert_eq!(result.placed_count, 3);
+    }
+
+    #[test]
+    fn wall_flush_placements_stay_in_original_bin_bounds() {
+        // After the wall-flush change (jagua_adapter expands bin by
+        // clearance + snapshot_to_placements shifts by -clearance),
+        // every placement polygon must stay within [0, W] × [0, H] of
+        // the ORIGINAL bin — not the expanded one. This catches a
+        // misapplied shift (e.g., wrong sign, doubled, missed).
+        let req = PackRequest {
+            bins: vec![bin("b1", 24.0, 24.0)],
+            clearance: 0.125,
+            items: vec![rect_part("rect-a", 4, 6.0, 6.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+            use_warm_start: None,
+        };
+        let result = pack(req).unwrap();
+        assert!(result.placed_count > 0, "at least some parts must place");
+        for p in &result.placements {
+            for v in &p.polygon {
+                assert!(
+                    v.x >= -1e-6,
+                    "polygon vertex {:?} has x < 0 (shift bug?)",
+                    v
+                );
+                assert!(
+                    v.y >= -1e-6,
+                    "polygon vertex {:?} has y < 0 (shift bug?)",
+                    v
+                );
+                assert!(
+                    v.x <= 24.0 + 1e-6,
+                    "polygon vertex {:?} has x > bin width (shift bug?)",
+                    v
+                );
+                assert!(
+                    v.y <= 24.0 + 1e-6,
+                    "polygon vertex {:?} has y > bin height (shift bug?)",
+                    v
+                );
+            }
+        }
+    }
+
+    // R6 — three tests documenting that wall-flush + Option C greedy
+    // warm-start let near-bin-size rectangles fit reliably. Pre-Option-C,
+    // the LBF probabilistic sampler couldn't hit the 1×1 valid centroid
+    // region in a ~4636 in² container; the warm-start now places the
+    // 47×95 part deterministically before LBF sampling runs. Closed #18.
+
+    #[test]
+    fn r6_near_bin_size_part_fits_via_pack_lbf() {
+        // Test pack_lbf directly (no LNS, no consolidation) to isolate
+        // where R6 fails.
+        let req = PackRequest {
+            bins: vec![bin("b1", 48.0, 96.0)],
+            clearance: 0.125,
+            items: vec![rect_part("near-full", 1, 47.0, 95.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+            use_warm_start: None,
+        };
+        let result = crate::application::pack_lbf::pack_lbf(req).unwrap();
+        assert_eq!(
+            result.placed_count, 1,
+            "47x95 part should fit on 48x96 bin via pack_lbf; got placed={}, overflow={}",
+            result.placed_count, result.overflow_count
+        );
+    }
+
+    #[test]
+    fn r6_near_bin_size_part_fits_via_pack_lbf_lns() {
+        // Same as r6_near_bin_size_part_fits_with_wall_flush but
+        // routes through pack_lbf_lns (the production path the Tauri
+        // frontend hits, not the FFD-orchestrated `pack` entry).
+        let req = PackRequest {
+            bins: vec![bin("b1", 48.0, 96.0)],
+            clearance: 0.125,
+            items: vec![rect_part("near-full", 1, 47.0, 95.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+            use_warm_start: None,
+        };
+        let result = crate::application::pack_lbf_lns::pack_lbf_lns(req).unwrap();
+        assert_eq!(
+            result.placed_count, 1,
+            "47x95 part should fit on 48x96 bin via pack_lbf_lns; got placed={}, overflow={}",
+            result.placed_count, result.overflow_count
+        );
+    }
+
+    #[test]
+    fn r6_near_bin_size_part_fits_with_wall_flush() {
+        // 47×95 part on a 48×96 bin with 0.125 kerf. Pre-wall-flush:
+        // needed 47.25×95.25 of bin = 0×0 valid centroid region →
+        // overflow. Post-wall-flush: needs exactly 47×95 = 1×1 valid
+        // centroid region. LBF probabilistic sampling should still find
+        // it within 5000 samples × 10 multistart seeds.
+        let req = PackRequest {
+            bins: vec![bin("b1", 48.0, 96.0)],
+            clearance: 0.125,
+            items: vec![rect_part("near-full", 1, 47.0, 95.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+            use_warm_start: None,
+        };
+        let result = pack(req).unwrap();
+        assert_eq!(
+            result.placed_count, 1,
+            "47x95 part should fit on 48x96 bin post-wall-flush; got placed={}, overflow={}",
+            result.placed_count, result.overflow_count
+        );
+    }
+
+    #[test]
+    fn user_fixture_consolidates_rectangles() {
+        // Mimic the user's reported scenario: ~8× 6x6 rectangles on
+        // 24x24 stock with 0.125 kerf. Auto-fill estimate would be
+        // ceil(8×36/576 × 1.54) = ceil(0.77) = 1 bin needed, but the
+        // allocator clamps to MIN_SHEETS=1. Pretend the operator
+        // demanded more parts than fit (e.g., 12) so allocator gives 2
+        // bins. Verify the outer pack_lbf_lns loop actually fills bin 1
+        // before spilling to bin 2.
+        let mut bins = Vec::with_capacity(5);
+        for i in 0..5 {
+            bins.push(bin(&format!("b{i}"), 24.0, 24.0));
+        }
+        let req = PackRequest {
+            bins,
+            clearance: 0.125,
+            // 5× 6x6 — should ALL fit in 1 bin (3x3=9 max)
+            items: vec![rect_part("rect-a", 5, 6.0, 6.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+            use_warm_start: None,
+        };
+        let result = pack(req).unwrap();
+        let bins_with_placements: std::collections::HashSet<&str> = result
+            .placements
+            .iter()
+            .map(|p| p.bin_id.as_str())
+            .collect();
+        let parts_per_bin: std::collections::HashMap<&str, u32> =
+            result
+                .placements
+                .iter()
+                .fold(Default::default(), |mut m, p| {
+                    *m.entry(p.bin_id.as_str()).or_insert(0) += 1;
+                    m
+                });
+        // 5× 6x6 in 24x24 (kerf 0.125): max 9 per bin, all 5 should
+        // consolidate to a single bin.
+        assert_eq!(
+            bins_with_placements.len(),
+            1,
+            "5× 6x6 parts should fit in 1 bin, got {} bins: {:?}",
+            bins_with_placements.len(),
+            parts_per_bin
+        );
+    }
+
+    #[test]
+    fn small_part_count_consolidates_to_fewest_bins() {
+        // 4 small parts (3×3) with the auto-fill allocator declaring 5
+        // bins of 24×24 — same shape as the multi-sheet over-allocation
+        // case. Pre-fix: LBF spreads parts across 2-5 bins because
+        // probabilistic sampling occasionally misses a fit in the open
+        // bin and spills to a new one. Post-fix: the bins-used
+        // tiebreaker in the multistart selection favors the attempt
+        // that put everything in one bin.
+        let mut bins = Vec::with_capacity(5);
+        for i in 0..5 {
+            bins.push(bin(&format!("b{i}"), 24.0, 24.0));
+        }
+        let req = PackRequest {
+            bins,
+            clearance: 0.125,
+            items: vec![rect_part("rect-a", 4, 3.0, 3.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+            use_warm_start: None,
+        };
+        let result = pack(req).unwrap();
+        assert_eq!(result.placed_count, 4);
+        assert_eq!(result.overflow_count, 0);
+        let bins_with_placements: std::collections::HashSet<&str> = result
+            .placements
+            .iter()
+            .map(|p| p.bin_id.as_str())
+            .collect();
+        assert_eq!(
+            bins_with_placements.len(),
+            1,
+            "4 small parts on a 24x24 bin should consolidate to a single bin (got {} bins: {:?})",
+            bins_with_placements.len(),
+            bins_with_placements
+        );
+    }
+
+    #[test]
+    fn auto_fill_overallocation_skips_empty_bins() {
+        // The frontend auto-fill bin allocator over-allocates by ~1.54×
+        // (1/PACKING_EFFICIENCY_FLOOR). 10 declared bins where parts
+        // comfortably fit in ~2 should run fast; this proves the empty
+        // bins jagua creates are essentially free.
+        let mut bins = Vec::with_capacity(10);
+        for i in 0..10 {
+            bins.push(bin(&format!("b{i}"), 20.0, 20.0));
+        }
+        let req = PackRequest {
+            bins,
+            clearance: 0.125,
+            // 8 small parts, each 5×5 — easily 16 per 20×20 bin, so all
+            // 8 fit in bin 0; bins 1..9 stay empty.
+            items: vec![rect_part("rect-a", 8, 5.0, 5.0)],
+            operator_profile: None,
+            mode: Some(PackMode::Fast),
+            engine: None,
+            time_budget_ms: None,
+            improvement_budget_ms: None,
+            seed: Some(42),
+            units: Default::default(),
+            cone_strategy: None,
+            cone_packing_mode: None,
+            scrap_strategy: None,
+            offcut_extraction_strategy: None,
+            use_warm_start: None,
+        };
+        let start = std::time::Instant::now();
+        let result = pack(req).unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(result.placed_count, 8);
+        assert_eq!(result.overflow_count, 0);
+        // 2s ceiling sized for debug builds; release is well under
+        // 100ms. Empty bins fall out of the per-bin loop with zero
+        // placements.
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "over-allocation should be cheap; got {elapsed:?}"
+        );
+        let bins_with_placements: std::collections::HashSet<String> =
+            result.placements.iter().map(|p| p.bin_id.clone()).collect();
+        assert!(
+            bins_with_placements.len() <= 2,
+            "8 parts of 5x5 should fit in 1-2 bins; saw {} bins used",
+            bins_with_placements.len()
+        );
     }
 
     #[test]
@@ -500,6 +809,7 @@ mod tests {
             cone_packing_mode: None,
             scrap_strategy: None,
             offcut_extraction_strategy: None,
+            use_warm_start: None,
         };
         let result = pack(req).unwrap();
         assert_eq!(result.placed_count, 3);

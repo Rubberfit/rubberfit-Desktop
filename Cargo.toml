@@ -25,21 +25,33 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 
-# jagua-rs 0.7.1 has an over-aggressive internal debug_assert at
-# `collision_detection/quadtree/qt_hazard.rs:111` — asserts that a
-# `Partial` hazard spanning multiple quadrants must produce at least
-# one child quadrant with colliding edges. Fires when a hazard
-# polygon fully SURROUNDS a child quadrant with zero edge crossings
-# (common in clearance-inflated tight-bin fixtures where rect edges
-# lie outside deeper child quadrants the rect interior fully covers).
+# jagua-rs 0.7.1 has two over-aggressive internal debug_asserts that
+# fire on legitimate inputs:
 #
-# Downstream neighbor-inference at qt_hazard.rs:116-163 already handles
-# the zero-edge-colliding case correctly via centroid containment.
-# The assertion at line 111 is over-restrictive.
+# 1. `collision_detection/quadtree/qt_hazard.rs:111` — asserts that a
+#    `Partial` hazard spanning multiple quadrants must produce at least
+#    one child quadrant with colliding edges. Fires when a hazard
+#    polygon fully SURROUNDS a child quadrant with zero edge crossings
+#    (common in clearance-inflated tight-bin fixtures where rect edges
+#    lie outside deeper child quadrants the rect interior fully covers).
+#    Downstream neighbor-inference at qt_hazard.rs:116-163 already handles
+#    the zero-edge-colliding case correctly via centroid containment.
 #
-# Release builds strip debug_asserts — production unaffected. The test
-# override is the only current fix until upstream ships a patch.
+# 2. `probs/bpp/util/assertions.rs:11` — `assert_eq!(bpp.density(),
+#    sol.density(...))` panics with `NaN != NaN` when LBF places zero
+#    items (both sides compute `0/0`). Surfaces when the wall-flush
+#    bin expansion shrinks an item's valid centroid region small enough
+#    that LBF's probabilistic sampler can't find any position. Without
+#    this override, the AutoNest "Rect warm-start" toggle being
+#    unchecked on a near-bin-size rectangle fixture (R6) crashes the
+#    Tauri runtime.
 #
-# (Ported verbatim from rema-portal/engine/Cargo.toml.)
+# Release builds strip debug_asserts — production unaffected. The
+# overrides are the only current fix until upstream ships patches.
+#
+# (Ported verbatim from rema-portal/engine/Cargo.toml; #2 added 2026-04-26.)
 [profile.test.package.jagua-rs]
+debug-assertions = false
+
+[profile.dev.package.jagua-rs]
 debug-assertions = false

@@ -16,6 +16,13 @@ export interface StockConfig {
   length: number
   material: string
   thickness: number
+  /**
+   * Saw-blade kerf width in inches. Drives the inter-item separation
+   * the packer enforces. Wall-flush packing means this gap appears
+   * BETWEEN parts only, not against bin walls (operators don't trim
+   * sheet perimeters).
+   */
+  kerf: number
   materialTypeId?: string
   costPerSqft?: number
 }
@@ -75,10 +82,24 @@ interface StockPreviewConfiguratorProps {
   materialTypes?: MaterialType[]
 }
 
-type StockField = "width" | "length" | "thickness"
+type StockField = "width" | "length" | "thickness" | "kerf"
 
 function formatDraftValue(value: number) {
   return Number.isFinite(value) ? String(value) : ""
+}
+
+function MeasurementLabel({ htmlFor, label }: { htmlFor: string; label: string }) {
+  return (
+    <label
+      htmlFor={htmlFor}
+      className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500"
+    >
+      {label}
+      <span className="ml-1 normal-case tracking-normal text-slate-400 dark:text-slate-500">
+        (in)
+      </span>
+    </label>
+  )
 }
 
 export function StockPreviewConfigurator({
@@ -92,6 +113,7 @@ export function StockPreviewConfigurator({
     width: formatDraftValue(stock.width),
     length: formatDraftValue(stock.length),
     thickness: formatDraftValue(stock.thickness),
+    kerf: formatDraftValue(stock.kerf),
   }))
 
   const updateDraft = (field: StockField, value: string) => {
@@ -205,14 +227,9 @@ export function StockPreviewConfigurator({
           </div>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <label
-              htmlFor="stock-width"
-              className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500"
-            >
-              Width
-            </label>
+            <MeasurementLabel htmlFor="stock-width" label="Width" />
             <Input
               id="stock-width"
               min={1}
@@ -240,12 +257,7 @@ export function StockPreviewConfigurator({
             />
           </div>
           <div>
-            <label
-              htmlFor="stock-length"
-              className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500"
-            >
-              Length
-            </label>
+            <MeasurementLabel htmlFor="stock-length" label="Length" />
             <Input
               id="stock-length"
               min={1}
@@ -273,12 +285,7 @@ export function StockPreviewConfigurator({
             />
           </div>
           <div>
-            <label
-              htmlFor="stock-thickness"
-              className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500"
-            >
-              Thickness
-            </label>
+            <MeasurementLabel htmlFor="stock-thickness" label="Thickness" />
             <Input
               id="stock-thickness"
               min={0.0625}
@@ -300,6 +307,34 @@ export function StockPreviewConfigurator({
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   commitDraft("thickness", event.currentTarget.value, 0.0625)
+                  event.currentTarget.blur()
+                }
+              }}
+            />
+          </div>
+          <div>
+            <MeasurementLabel htmlFor="stock-kerf" label="Kerf" />
+            <Input
+              id="stock-kerf"
+              min={0}
+              step="0.001"
+              type="number"
+              value={getInputValue("kerf")}
+              onFocus={() => {
+                setActiveDraftField("kerf")
+                setDrafts((previous) => ({
+                  ...previous,
+                  kerf: formatDraftValue(stock.kerf),
+                }))
+              }}
+              onChange={(event) => updateDraft("kerf", event.target.value)}
+              onBlur={(event) => {
+                commitDraft("kerf", event.target.value, 0)
+                setActiveDraftField((previous) => (previous === "kerf" ? null : previous))
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  commitDraft("kerf", event.currentTarget.value, 0)
                   event.currentTarget.blur()
                 }
               }}

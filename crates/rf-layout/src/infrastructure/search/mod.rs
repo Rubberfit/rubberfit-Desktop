@@ -146,6 +146,7 @@ pub fn optimize(seed: SeedResult, config: OptimizerConfig) -> Result<SeedResult,
         &sep.instance,
         &config.items,
         &config.bin.bin_id,
+        config.clearance,
     ))
 }
 
@@ -538,6 +539,7 @@ fn run_repack_attempt(
                 &sep.instance,
                 subset_items,
                 &bin.bin_id,
+                clearance,
             )))
         }
         ExplorationOutcome::Infeasible { .. } => Ok(RepackOutcome::Infeasible),
@@ -615,6 +617,7 @@ fn snapshot_to_seed(
     instance: &BPInstance,
     items: &[Part],
     bin_id: &str,
+    clearance: f64,
 ) -> SeedResult {
     // Collect + sort deterministically.
     let mut entries: Vec<&PlacedItem> = snap.placed_items.values().collect();
@@ -629,11 +632,17 @@ fn snapshot_to_seed(
 
     let mut per_shape_count: HashMap<usize, u32> = HashMap::new();
     let mut placements = Vec::with_capacity(entries.len());
+    let shift = -clearance as f32;
 
     for pi in entries {
         let item = instance.item(pi.item_id);
         let pre_transf = &item.shape_orig.pre_transform;
-        let abs_transf = int_to_ext_transformation(&pi.d_transf, pre_transf);
+        // Shift back into original-bin coords (mirror snapshot_to_placements).
+        let abs_transf = crate::infrastructure::jagua_adapter::shift_dtransformation(
+            &int_to_ext_transformation(&pi.d_transf, pre_transf),
+            shift,
+            shift,
+        );
 
         let part = &items[pi.item_id];
         let polygon: Vec<Point2D> = part
@@ -963,7 +972,7 @@ mod tests {
         layout.place_item(instance.item(0), DTransformation::new(0.0, (10.0, 20.0)));
         let snap = layout.save();
 
-        let result = snapshot_to_seed(&snap, &instance, &parts, &bin.bin_id);
+        let result = snapshot_to_seed(&snap, &instance, &parts, &bin.bin_id, 0.0);
 
         assert_eq!(result.placements.len(), 1);
         let p = &result.placements[0];

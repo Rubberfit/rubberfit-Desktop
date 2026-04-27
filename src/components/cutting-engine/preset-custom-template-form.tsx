@@ -7,6 +7,7 @@ import { DEFAULT_CUSTOM_DRAFTS } from "./preset-template-data"
 interface CustomFieldDef {
   key: string
   label: string
+  unit: string
   placeholder: string
 }
 
@@ -14,26 +15,26 @@ function getCustomFields(partType: SupportedPartType): CustomFieldDef[] {
   switch (partType) {
     case "cylinder":
       return [
-        { key: "diameter", label: "Diameter", placeholder: "24" },
-        { key: "height", label: "Height", placeholder: "40" },
+        { key: "diameter", label: "Diameter", unit: "in", placeholder: "24" },
+        { key: "height", label: "Height", unit: "in", placeholder: "40" },
       ]
     case "cone":
       return [
-        { key: "innerRadius", label: "Inner Radius", placeholder: "10" },
-        { key: "outerRadius", label: "Outer Radius", placeholder: "24" },
-        { key: "arcDegrees", label: "Arc Degrees", placeholder: "100" },
+        { key: "innerRadius", label: "Inner Radius", unit: "in", placeholder: "10" },
+        { key: "outerRadius", label: "Outer Radius", unit: "in", placeholder: "24" },
+        { key: "arcDegrees", label: "Arc Degrees", unit: "deg", placeholder: "100" },
       ]
     case "trapezoid":
       return [
-        { key: "topWidth", label: "Top Width", placeholder: "24" },
-        { key: "bottomWidth", label: "Bottom Width", placeholder: "36" },
-        { key: "height", label: "Height", placeholder: "56" },
+        { key: "topWidth", label: "Top Width", unit: "in", placeholder: "24" },
+        { key: "bottomWidth", label: "Bottom Width", unit: "in", placeholder: "36" },
+        { key: "height", label: "Height", unit: "in", placeholder: "56" },
       ]
     case "rectangle":
     default:
       return [
-        { key: "width", label: "Width", placeholder: "24" },
-        { key: "length", label: "Length", placeholder: "50" },
+        { key: "width", label: "Width", unit: "in", placeholder: "24" },
+        { key: "length", label: "Length", unit: "in", placeholder: "50" },
       ]
   }
 }
@@ -78,7 +79,7 @@ export default function PresetCustomTemplateForm({
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-3 dark:bg-card">
+    <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3 dark:bg-card">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -136,6 +137,9 @@ export default function PresetCustomTemplateForm({
               className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500"
             >
               {field.label}
+              <span className="ml-1 normal-case tracking-normal text-slate-400 dark:text-slate-500">
+                ({field.unit})
+              </span>
             </label>
             <Input
               id={`${selectedPart}-${field.key}`}

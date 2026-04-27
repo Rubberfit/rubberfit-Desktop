@@ -43,6 +43,8 @@ interface DimensionSet {
   arcDegrees?: number
 }
 
+const MAX_TEMPLATE_QUANTITY = 1000
+
 export interface LoadedSelection {
   /** Part type tab to switch to */
   partType: SupportedPartType
@@ -465,7 +467,9 @@ export function usePresetState(
   }
 
   const handleQuantityChange = (templateId: string, qty: number) => {
-    const clamped = Number.isFinite(qty) ? Math.max(1, Math.min(99, Math.round(qty))) : 1
+    const clamped = Number.isFinite(qty)
+      ? Math.max(1, Math.min(MAX_TEMPLATE_QUANTITY, Math.round(qty)))
+      : 1
     setQuantities((previous) => {
       const next = new Map(previous)
       if (clamped <= 1) {

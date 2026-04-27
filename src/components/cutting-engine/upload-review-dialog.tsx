@@ -171,25 +171,6 @@ interface SectionProps<T extends ExtractedPart> {
 
 const inputCls = "w-full rounded border border-border bg-transparent px-1.5 py-1 text-sm"
 
-function PartNumberCell({
-  value,
-  onChange,
-}: {
-  value: string | undefined
-  onChange: (v: string) => void
-}) {
-  return (
-    <TableCell>
-      <input
-        className={inputCls}
-        value={value ?? ""}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="—"
-      />
-    </TableCell>
-  )
-}
-
 function NumberCell({
   value,
   onChange,
@@ -239,7 +220,6 @@ function RectangleTable({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[100px]">Part #</TableHead>
           <TableHead className="w-[100px]">Width</TableHead>
           <TableHead className="w-[100px]">Length</TableHead>
           <TableHead className="w-[70px]">Qty</TableHead>
@@ -249,10 +229,6 @@ function RectangleTable({
       <TableBody>
         {rows.map(({ part, index }) => (
           <TableRow key={index}>
-            <PartNumberCell
-              value={part.partNumber}
-              onChange={(v) => updateRow(index, (p) => ({ ...p, partNumber: v }))}
-            />
             <NumberCell
               value={part.width}
               onChange={(v) =>
@@ -294,7 +270,6 @@ function CylinderTable({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[100px]">Part #</TableHead>
           <TableHead className="w-[100px]">Diameter</TableHead>
           <TableHead className="w-[100px]">Height</TableHead>
           <TableHead className="w-[70px]">Qty</TableHead>
@@ -304,10 +279,6 @@ function CylinderTable({
       <TableBody>
         {rows.map(({ part, index }) => (
           <TableRow key={index}>
-            <PartNumberCell
-              value={part.partNumber}
-              onChange={(v) => updateRow(index, (p) => ({ ...p, partNumber: v }))}
-            />
             <NumberCell
               value={part.diameter}
               onChange={(v) =>
@@ -349,7 +320,6 @@ function ConeTable({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[90px]">Part #</TableHead>
           <TableHead className="w-[100px]">Inner R</TableHead>
           <TableHead className="w-[100px]">Outer R</TableHead>
           <TableHead className="w-[100px]">Arc°</TableHead>
@@ -360,10 +330,6 @@ function ConeTable({
       <TableBody>
         {rows.map(({ part, index }) => (
           <TableRow key={index}>
-            <PartNumberCell
-              value={part.partNumber}
-              onChange={(v) => updateRow(index, (p) => ({ ...p, partNumber: v }))}
-            />
             <NumberCell
               value={part.innerRadius}
               onChange={(v) =>
@@ -418,7 +384,6 @@ function TrapezoidTable({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[90px]">Part #</TableHead>
           <TableHead className="w-[100px]">Top W</TableHead>
           <TableHead className="w-[100px]">Bottom W</TableHead>
           <TableHead className="w-[100px]">Height</TableHead>
@@ -429,10 +394,6 @@ function TrapezoidTable({
       <TableBody>
         {rows.map(({ part, index }) => (
           <TableRow key={index}>
-            <PartNumberCell
-              value={part.partNumber}
-              onChange={(v) => updateRow(index, (p) => ({ ...p, partNumber: v }))}
-            />
             <NumberCell
               value={part.topWidth}
               onChange={(v) =>

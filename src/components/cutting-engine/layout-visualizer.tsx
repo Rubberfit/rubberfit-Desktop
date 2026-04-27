@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 import type { LayoutModel, LayoutRegion, PlacedPart, RenderShape } from "./layout-model"
 import type { SimpleCutMetrics } from "./nesting-visualizer-types"
 import { formatInches } from "./format-inches"
+import { partLabelCenter } from "./part-label"
 
 // ── Display constants ─────────────────────────────────────────────────────
 
@@ -1023,16 +1024,44 @@ function RegionShape({
 
 // Below this on-screen min dimension, an offcut is too small to host
 // readable text — the label is suppressed so the surface stays clean.
-const OFFCUT_LABEL_MIN_PX = 36
+// Label hides only for truly tiny rects. The 6"×24" minimum-strip
+// reusable-offcut threshold renders ~25 SVG px on the short axis at
+// the typical 120×96 sheet scale, so anything stricter than ~20 drops
+// labels off legitimate reusable pieces. Narrow strips rotate the
+// label 90° so it reads along the long axis.
+const OFFCUT_LABEL_MIN_PX = 18
+const OFFCUT_LABEL_ROTATE_RATIO = 1.7
 
 function OffcutLabel({ region, layout }: { region: LayoutRegion; layout: SheetLayout }) {
-  const minPx = Math.min(region.width, region.height) * layout.scale
+  const widthPx = region.width * layout.scale
+  const heightPx = region.height * layout.scale
+  const minPx = Math.min(widthPx, heightPx)
+  const maxPx = Math.max(widthPx, heightPx)
   if (minPx < OFFCUT_LABEL_MIN_PX) return null
+
   const cx = layout.surfaceX + (region.x + region.width / 2) * layout.scale
   const cy = layout.surfaceY + (region.y + region.height / 2) * layout.scale
-  // Same clamp shape as PartShape (10-18 px, 32% of the smaller side)
-  // so offcut and part labels share visual rhythm.
-  const fontSize = Math.max(8, Math.min(12, minPx * 0.2))
+  const text = `${formatInches(region.width)}" × ${formatInches(region.height)}"`
+  // Estimated label width at 1px font size — helvetica ~0.55 em-ratio.
+  // Used to pick a font size that actually fits along the chosen axis.
+  const labelEmWidth = text.length * 0.55
+
+  // Rotate when one axis is significantly longer; the label then reads
+  // along the long axis and we size against that axis instead.
+  const isVerticalStrip = heightPx > widthPx * OFFCUT_LABEL_ROTATE_RATIO
+  const isHorizontalStrip = widthPx > heightPx * OFFCUT_LABEL_ROTATE_RATIO
+  const rotated = isVerticalStrip
+  const longAxisPx = isVerticalStrip || isHorizontalStrip ? maxPx : widthPx
+  const shortAxisPx = isVerticalStrip || isHorizontalStrip ? minPx : heightPx
+
+  // Pick the largest font size that fits within the label's available
+  // axes (long axis bounds the text length, short axis bounds the
+  // text height ~ 1.2em). Capped 7-13px for legibility.
+  const fontFromLength = (longAxisPx * 0.92) / labelEmWidth
+  const fontFromHeight = shortAxisPx / 1.4
+  const fontSize = Math.max(7, Math.min(13, Math.min(fontFromLength, fontFromHeight)))
+  const transform = rotated ? `rotate(-90 ${cx} ${cy})` : undefined
+
   return (
     <text
       x={cx}
@@ -1042,9 +1071,10 @@ function OffcutLabel({ region, layout }: { region: LayoutRegion; layout: SheetLa
       fill="#000"
       fontSize={fontSize}
       fontWeight="600"
+      transform={transform}
       style={{ pointerEvents: "none", userSelect: "none" }}
     >
-      {`${formatInches(region.width)}" × ${formatInches(region.height)}"`}
+      {text}
     </text>
   )
 }
@@ -1175,63 +1205,10 @@ function partAabb(part: PlacedPart): { x: number; y: number; width: number; heig
   return { x: part.x, y: part.y, width: part.width, height: part.height }
 }
 
-/**
- * Where to anchor the part's tag label, in stock-local inches.
- *
- * Returns the polygon's area-weighted centroid when a polygon is
- * present, falling back to the placement-rect centre otherwise. The
- * centroid (vs. the bbox / hull centre) keeps the tag inside the
- * actual filled silhouette for concave parts — most importantly the
- * 150° annular sector, whose bbox centre falls in the inner-arc
- * hole. `minDim` mirrors the bbox min dimension (not a centroid-to-
- * edge distance) so font sizing stays proportional to the visual
- * footprint.
- */
-function partLabelCenter(part: PlacedPart): { x: number; y: number; minDim: number } {
-  const aabb = partAabb(part)
-  const minDim = Math.min(aabb.width, aabb.height)
-  if (part.polygon && part.polygon.length >= 3) {
-    const c = polygonCentroid(part.polygon)
-    return { x: c.x, y: c.y, minDim }
-  }
-  return { x: part.x + part.width / 2, y: part.y + part.height / 2, minDim }
-}
-
-/**
- * Area-weighted centroid of a simple polygon. CCW or CW input is
- * fine — the signed-area term cancels with the moment terms. For
- * degenerate polygons (zero signed area: collinear or duplicated
- * vertices) falls back to the vertex average so callers always get a
- * usable point.
- */
-function polygonCentroid(points: ReadonlyArray<{ x: number; y: number }>): {
-  x: number
-  y: number
-} {
-  let cx = 0
-  let cy = 0
-  let area2 = 0
-  const n = points.length
-  for (let i = 0; i < n; i++) {
-    const p0 = points[i]
-    const p1 = points[(i + 1) % n]
-    const cross = p0.x * p1.y - p1.x * p0.y
-    area2 += cross
-    cx += (p0.x + p1.x) * cross
-    cy += (p0.y + p1.y) * cross
-  }
-  if (Math.abs(area2) < 1e-9) {
-    let ax = 0
-    let ay = 0
-    for (const p of points) {
-      ax += p.x
-      ay += p.y
-    }
-    return { x: ax / n, y: ay / n }
-  }
-  const factor = 1 / (3 * area2)
-  return { x: cx * factor, y: cy * factor }
-}
+// partLabelCenter / polygonCentroid moved to ./part-label.ts so the
+// PDF exporter shares the same area-weighted-centroid placement and a
+// tag that reads inside the cone silhouette on screen does the same in
+// the printed report.
 
 function PartShape({
   part,

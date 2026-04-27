@@ -9,6 +9,7 @@ import { PART_OPTIONS } from "./preset-template-data"
 import type { LayoutModel, PlacedPart, LayoutRegion } from "./layout-model"
 import { buildTaggedReusableOffcuts } from "./reusable-offcut-tags"
 import { formatInches } from "./format-inches"
+import { partLabelCenter } from "./part-label"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -382,11 +383,11 @@ function drawPart(
   const py = oy + part.y * scale
   const pw = part.width * scale
   const ph = part.height * scale
-  const cx = px + pw / 2
-  const cy = py + ph / 2
 
   if (part.renderShape === "circle" && part.diameter != null) {
     const r = (part.diameter / 2) * scale
+    const cx = px + pw / 2
+    const cy = py + ph / 2
     doc.ellipse(cx, cy, r, r, "FD")
   } else if (part.polygon && part.polygon.length >= 3) {
     drawPolygon(doc, part.polygon, ox, oy, scale, "FD")
@@ -394,12 +395,20 @@ function drawPart(
     doc.rect(px, py, pw, ph, "FD")
   }
 
-  // Label
-  const labelFontPt = Math.max(5, Math.min(10, Math.min(pw, ph) / 3))
+  // Label position: polygon centroid for non-rect shapes so the tag
+  // sits inside the actual silhouette. The bbox centre — which the
+  // PDF used to use — falls outside concave parts (e.g. inside the
+  // 150° annular sector's inner-arc hole), pushing the tag off the
+  // shape entirely.
+  const center = partLabelCenter(part)
+  const labelX = ox + center.x * scale
+  const labelY = oy + center.y * scale
+  const labelMinDim = center.minDim * scale
+  const labelFontPt = Math.max(5, Math.min(10, labelMinDim / 3))
   doc.setFontSize(labelFontPt)
   doc.setTextColor(255, 255, 255)
   doc.setFont("helvetica", "bold")
-  doc.text(part.label, cx, cy + labelFontPt / 4, { align: "center" })
+  doc.text(part.label, labelX, labelY + labelFontPt / 4, { align: "center" })
 }
 
 function drawPolygon(

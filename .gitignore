@@ -42,3 +42,10 @@ src-tauri/Cargo.lock
 
 # OS
 Thumbs.db
+
+# Data files
+*.csv
+*.xls
+*.xlsx
+*.xlsm
+*.xlsb

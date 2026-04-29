@@ -28,7 +28,7 @@ export function AppSidebar() {
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
-        <img src="/archanchormain.png" alt="" className="size-10 shrink-0" />
+        <img src="/archanchormain.png" alt="" className="size-10 shrink-0 invert dark:invert-0" />
         <span className="text-lg font-semibold tracking-tight">RubberFit</span>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-2">

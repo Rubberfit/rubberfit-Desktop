@@ -27,9 +27,10 @@ export function AppSidebar() {
   const { entries, sections, scrollTo } = useSheetNav()
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
-        <div className="size-6 rounded bg-sidebar-primary" />
-        <span className="text-sm font-semibold tracking-tight">RubberFit</span>
+      <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
+        <img src="/archanchorlogo.png" alt="" className="size-10 shrink-0 dark:hidden" />
+        <img src="/archanchormain.png" alt="" className="hidden size-10 shrink-0 dark:block" />
+        <span className="text-lg font-semibold tracking-tight">RubberFit</span>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-2">
         {NAV_ITEMS.map(({ to, label, Icon }) => (

@@ -25,6 +25,7 @@ use lbf::config::LBFConfig;
 use lbf::opt::lbf_bpp::LBFOptimizerBP;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
+use rayon::prelude::*;
 use rf_geom::domain::Point2D;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -128,15 +129,6 @@ pub fn pack_lbf_with_config(
         Vec::new()
     };
 
-    // Honour the caller's time budget. We stop launching new multistart
-    // attempts once the deadline elapses — the best result so far is
-    // returned. At least one attempt always runs.
-    // `resolved_time_budget_ms` covers both an explicit `time_budget_ms`
-    // AND the mode-based fallback (Fast=2s, Balanced=10s, Thorough=30s);
-    // reading the raw field alone would skip the deadline whenever the
-    // caller specified a mode without an explicit ms.
-    let deadline = started_at + std::time::Duration::from_millis(request.resolved_time_budget_ms());
-
     // Deterministic seed sequence from the caller's (optional) base seed.
     // Falls back to a fixed 42 when the request omits the seed so results
     // stay reproducible across runs. Multistart derives attempt seeds by
@@ -165,61 +157,40 @@ pub fn pack_lbf_with_config(
         .map(|i| base_seed.wrapping_add(i))
         .collect();
 
-    // Run multistart, keep the best-placed attempt. Ties broken by
-    // higher density (more compact layout when placement count matches).
-    // The first attempt always seeds `best_*` so we have a baseline even
-    // when every attempt places zero items â€” "zero placements" is a
-    // valid result (e.g. all items oversized vs the bins) and must not
-    // degrade into an Err.
-    let mut best_solution: Option<jagua_rs::probs::bpp::entities::BPSolution> = None;
-    let mut best_placed: usize = 0;
-    let mut best_bins_used: usize = usize::MAX;
-    let mut best_density: f32 = 0.0;
-    for (attempts_run, seed) in seeds.into_iter().enumerate() {
-        // Deadline check â€” but always run the first attempt so the
-        // caller gets a valid result even if the budget is too tight.
-        if attempts_run > 0 && std::time::Instant::now() >= deadline {
-            break;
-        }
+    // Multistart in parallel via rayon's global pool. Each seed is
+    // an independent LBF pass; the reducer picks the winner by
+    // (placed, fewer bins, higher density). The trailing seed
+    // tiebreaker inside `pick_better` keeps the result deterministic
+    // under rayon's nondeterministic reduction order.
+    let best = seeds
+        .into_par_iter()
+        .map(|seed| {
+            let sol = run_single_lbf_with_warm_start(
+                &instance,
+                seed,
+                cfg.n_samples,
+                cfg.ls_frac,
+                &warm_start,
+            );
+            let placed: usize = sol
+                .layout_snapshots
+                .values()
+                .map(|ls| ls.placed_items.len())
+                .sum();
+            let bins_used = sol.layout_snapshots.len();
+            let density = sol.density(&instance);
+            AttemptResult {
+                seed,
+                sol,
+                placed,
+                bins_used,
+                density,
+            }
+        })
+        .reduce_with(pick_better)
+        .expect("multistart_seeds >= 1 guarantees at least one result");
 
-        let sol = run_single_lbf_with_warm_start(
-            &instance,
-            seed,
-            cfg.n_samples,
-            cfg.ls_frac,
-            &warm_start,
-        );
-        let placed: usize = sol
-            .layout_snapshots
-            .values()
-            .map(|ls| ls.placed_items.len())
-            .sum();
-        // Number of bins this attempt actually used. layout_snapshots
-        // only contains layouts that received at least one item, so
-        // this is naturally "non-empty bins".
-        let bins_used = sol.layout_snapshots.len();
-        let density = sol.density(&instance);
-
-        // Prefer (in order): more items placed → fewer bins used →
-        // higher density. The bins-used tiebreaker matters when the
-        // auto-fill allocator over-allocates: LBF is first-fit but
-        // probabilistic sampling can spill items into new bins they
-        // could have fit in already-open ones. Among multistart
-        // attempts that placed the same items, the consolidated layout
-        // wins.
-        let is_better = best_solution.is_none()
-            || placed > best_placed
-            || (placed == best_placed && bins_used < best_bins_used)
-            || (placed == best_placed && bins_used == best_bins_used && density > best_density);
-        if is_better {
-            best_solution = Some(sol);
-            best_placed = placed;
-            best_bins_used = bins_used;
-            best_density = density;
-        }
-    }
-
-    let solution = best_solution.expect("multistart_seeds â‰¥ 1 guarantees a best_solution");
+    let solution = best.sol;
 
     let mut placements: Vec<Placement> = Vec::new();
     let mut per_bin: Vec<BinResult> = Vec::new();
@@ -346,6 +317,36 @@ pub fn pack_lbf_with_config(
         run_time_ms: Some(run_time_ms),
         was_cancelled: false,
     })
+}
+
+/// One LBF multistart attempt with precomputed comparison metrics.
+/// Carries `seed` so the parallel reducer can break ties deterministically.
+struct AttemptResult {
+    seed: u64,
+    sol: jagua_rs::probs::bpp::entities::BPSolution,
+    placed: usize,
+    bins_used: usize,
+    density: f32,
+}
+
+/// Multistart winner predicate. Precedence matches the original
+/// sequential loop: more placed, then fewer bins, then higher density.
+/// The trailing `seed` tiebreaker is REQUIRED for `deterministic_under_seed`
+/// to pass under rayon's nondeterministic reduction order; without it,
+/// two equally-good attempts could swap winners across runs.
+fn pick_better(a: AttemptResult, b: AttemptResult) -> AttemptResult {
+    let b_wins = b.placed > a.placed
+        || (b.placed == a.placed && b.bins_used < a.bins_used)
+        || (b.placed == a.placed && b.bins_used == a.bins_used && b.density > a.density)
+        || (b.placed == a.placed
+            && b.bins_used == a.bins_used
+            && b.density == a.density
+            && b.seed < a.seed);
+    if b_wins {
+        b
+    } else {
+        a
+    }
 }
 
 /// Run one LBF attempt with optional warm-start pre-placements. Pass

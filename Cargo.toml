@@ -55,3 +55,29 @@ debug-assertions = false
 
 [profile.dev.package.jagua-rs]
 debug-assertions = false
+
+# Compile every external dependency (jagua-rs, clipper2, geo, lbf, …)
+# at full release optimization in dev builds. `npm run tauri dev`
+# defaults to debug, and unoptimized math-heavy code (CDE, polygon
+# Boolean ops) runs 10–100× slower than release — a ~4 s release-mode
+# cone pack becomes minutes in stock dev. The wildcard rule composes
+# with the `jagua-rs` block above (debug-assertions stays off).
+#
+# IMPORTANT: per the Cargo Reference, `package."*"` does NOT match
+# workspace members. The local engine crates below get their own
+# explicit overrides — without them, our LBF/LNS wrapper, scrap
+# extraction, and polygon math still run at unoptimized debug speed
+# even though jagua-rs is fast.
+[profile.dev.package."*"]
+opt-level = 3
+
+# Local engine crates: explicit overrides because `package."*"` skips
+# workspace members. opt-level = 3 because runtime speed (pack
+# wall-clock) matters more than incremental compile speed for the
+# current workflow — most edits are TS/TSX, Rust changes are rare.
+# Drop to opt-level = 1 if Rust iteration becomes painful.
+[profile.dev.package.rf-geom]
+opt-level = 3
+
+[profile.dev.package.rf-layout]
+opt-level = 3

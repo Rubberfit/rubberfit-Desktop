@@ -16,6 +16,7 @@ jagua-rs = { git = "https://github.com/JeroenGar/jagua-rs", tag = "0.7.1", featu
 rand = "0.10"
 rand_distr = "0.6"
 rand_xoshiro = "0.8"
+rayon = "1"
 slotmap = "1.0"
 float-cmp = "0.10"
 itertools = "0.14"

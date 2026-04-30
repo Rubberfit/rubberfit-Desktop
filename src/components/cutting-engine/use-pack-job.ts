@@ -172,17 +172,30 @@ export function usePackJob({
     }
 
     const runId = ++runIdRef.current
-    // Clear stale layouts on the LEADING edge so the visualizer
-    // shows the "Packing…" header instead of the previous result
-    // until the new pack resolves.
-    setLayouts(null)
+    // Do NOT clear `layouts` here. The disabled-branch above already
+    // clears them when the parent invalidates inputs (via usePackGate),
+    // so on initial pack `layouts` is already null. The case we care
+    // about is AutoNest's auto-boost cascade: when the initial sheet
+    // count under-allocates, autoBoost bumps `packBins`, the requestKey
+    // changes, and this effect re-fires on the same enabled state.
+    // Clearing here used to flash the visualizer to "Packing…" between
+    // every silent boost iteration. Keeping the prior layout visible
+    // makes the boost truly silent — `isPacking` still flips to true
+    // for any subscriber that wants to render a subtle re-packing hint.
     setIsPacking(true)
     setPackError(null)
 
     const run = async () => {
       let request: PackRequest
       try {
-        request = buildPackRequest({ bins, items: parts, clearance })
+        // Stable seed: probabilistic LBF variance on borderline-density
+        // packs (e.g. 20 R22 cones at ~48% density on auto-fill bins)
+        // can underplace one run and place fully the next. AutoNest's
+        // auto-boost effect then cascades a re-pack on every overflow,
+        // producing the visible "graph flashes then re-packs" loop.
+        // The engine still runs 10× multistart with derived seeds
+        // (base + 0..9) internally, so search diversity is preserved.
+        request = buildPackRequest({ bins, items: parts, clearance, seed: 42 })
       } catch (err) {
         if (runIdRef.current !== runId) return
         setIsPacking(false)

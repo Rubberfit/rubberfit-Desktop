@@ -1,0 +1,110 @@
+name: Release
+
+# Tag-triggered. Push a tag like `v0.2.0` from `main` to cut a release:
+#   git tag v0.2.0
+#   git push --tags
+#
+# This workflow builds signed bundles for macOS (universal), Windows,
+# and Linux, uploads them to a GitHub Release alongside the
+# `latest.json` manifest the Tauri updater reads, then back-links the
+# latest `Arc-and-Anchor/rubberfit` (web) release into the body.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install Linux build deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev
+
+      - run: npm ci
+
+      # Pinned to the v0.6.2 commit SHA per supply-chain hardening.
+      # Bump deliberately by replacing the SHA + the comment.
+      - name: Build & release
+        uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "RubberFit Desktop ${{ github.ref_name }}"
+          releaseBody: "See the assets to download and install this version. The auto-updater pulls from `latest.json` published alongside these assets."
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  cross-link:
+    name: cross-link to web release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Append link to latest rubberfit web release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # Tolerate missing sibling release (404) — emit empty JSON.
+          web_release=$(gh api repos/Arc-and-Anchor/rubberfit/releases/latest 2>/dev/null || echo '{}')
+          web_tag=$(echo "$web_release" | jq -r '.tag_name // empty')
+          web_url=$(echo "$web_release" | jq -r '.html_url // empty')
+
+          if [[ -z "$web_tag" || -z "$web_url" ]]; then
+            echo "No paired rubberfit (web) release yet. Skipping cross-link footer."
+            exit 0
+          fi
+
+          marker="<!-- crosslink:rubberfit -->"
+          current_body=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body')
+          # Idempotent: drop the prior marker line and everything after it, then re-append fresh.
+          trimmed_body=$(printf '%s' "$current_body" | awk -v m="$marker" 'index($0, m) > 0 { exit } { print }')
+          new_body=$(printf '%s\n\n%s\n\n---\n\n🔗 **Web app**: [rubberfit %s](%s)\n' "$trimmed_body" "$marker" "$web_tag" "$web_url")
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes "$new_body"

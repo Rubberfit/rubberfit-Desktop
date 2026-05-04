@@ -38,12 +38,16 @@ jobs:
       # Refuse to release a tag whose commit isn't on main. Without
       # this, anyone with push access can publish a release from any
       # branch — including unreviewed work — by pushing `v*` against
-      # an arbitrary commit. We assert origin/main is an ancestor of
-      # the tagged commit (so the tag is at-or-ahead-of main's tip).
+      # an arbitrary commit. The check asserts the tagged commit is
+      # reachable from origin/main (i.e., it lives on main's history).
+      # The inverse direction (origin/main is-ancestor HEAD) would
+      # incorrectly pass any feature branch forked from main's tip —
+      # `--is-ancestor A B` returns true when A is in B's history, so
+      # HEAD must be the first arg.
       - name: Assert tag is on main
         run: |
           git fetch origin main
-          git merge-base --is-ancestor origin/main HEAD
+          git merge-base --is-ancestor HEAD origin/main
 
       - name: Set up Node
         uses: actions/setup-node@v4

@@ -111,7 +111,12 @@ jobs:
     steps:
       - name: Append link to latest rubberfit web release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN is scoped to this repo only and cannot read
+          # private sibling repos. Use CROSS_REPO_TOKEN (a PAT or
+          # GitHub App token with `contents:read` on rubberfit) if
+          # it's set; otherwise fall back to GITHUB_TOKEN, which
+          # works for public siblings but silently 404s on private.
+          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail

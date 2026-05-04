@@ -1,9 +1,15 @@
+import { useEffect } from "react"
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom"
 import { AppLayout } from "@/layouts/AppLayout"
 import { AutoNestPage } from "@/pages/AutoNest"
 import { FreeRoamPage } from "@/pages/FreeRoam"
+import { checkForUpdates } from "@/lib/updater"
 
 function App() {
+  useEffect(() => {
+    checkForUpdates()
+  }, [])
+
   return (
     <HashRouter>
       <Routes>

@@ -111,12 +111,17 @@ jobs:
     steps:
       - name: Append link to latest rubberfit web release
         env:
-          # GITHUB_TOKEN is scoped to this repo only and cannot read
-          # private sibling repos. Use CROSS_REPO_TOKEN (a PAT or
-          # GitHub App token with `contents:read` on rubberfit) if
-          # it's set; otherwise fall back to GITHUB_TOKEN, which
-          # works for public siblings but silently 404s on private.
-          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          # Two tokens, scoped by call:
+          # - GH_TOKEN (default for `gh release view`/`edit` against
+          #   THIS repo) is GITHUB_TOKEN, which has write access here.
+          # - CROSS_GH_TOKEN is the only token used for the cross-repo
+          #   lookup. Set CROSS_REPO_TOKEN as a PAT (or GitHub App
+          #   token) with `contents:read` on rubberfit — GITHUB_TOKEN
+          #   can't read private repos in the same org. Falls back to
+          #   GITHUB_TOKEN if unset (works for public siblings;
+          #   silently 404s on private — handled below).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CROSS_GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
@@ -132,7 +137,7 @@ jobs:
           err_log=$(mktemp)
           trap 'rm -f "$err_log"' EXIT
 
-          if ! web_release=$(gh api repos/Arc-and-Anchor/rubberfit/releases/latest 2>"$err_log"); then
+          if ! web_release=$(GH_TOKEN="$CROSS_GH_TOKEN" gh api repos/Arc-and-Anchor/rubberfit/releases/latest 2>"$err_log"); then
             # gh's stderr phrasing isn't strictly stable; tolerate
             # "HTTP 404", "Not Found", "not found", etc.
             if grep -qE "(HTTP 404|[Nn]ot [Ff]ound)" "$err_log"; then

@@ -128,7 +128,9 @@ jobs:
           trap 'rm -f "$err_log"' EXIT
 
           if ! web_release=$(gh api repos/Arc-and-Anchor/rubberfit/releases/latest 2>"$err_log"); then
-            if grep -q "Not Found" "$err_log"; then
+            # gh's stderr phrasing isn't strictly stable; tolerate
+            # "HTTP 404", "Not Found", "not found", etc.
+            if grep -qE "(HTTP 404|[Nn]ot [Ff]ound)" "$err_log"; then
               echo "No paired rubberfit (web) release found (or sibling repo inaccessible). Skipping cross-link footer."
             else
               echo "Cross-link API call failed; skipping footer." >&2

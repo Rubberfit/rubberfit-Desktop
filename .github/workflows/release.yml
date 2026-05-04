@@ -100,17 +100,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Distinguish "no release yet" (404, expected) from real
-          # API errors (403 if sibling becomes private, 5xx, etc.).
-          # In both cases we exit 0 so a transient lookup failure
-          # doesn't fail the whole release, but real errors get
-          # logged to stderr instead of silently dropped.
+          # Distinguish "release not visible" (404 — either the repo
+          # has no release yet OR GITHUB_TOKEN can't access it; GitHub
+          # deliberately returns 404 not 403 for private repos to
+          # avoid leaking their existence) from other API failures
+          # (5xx, rate limit, malformed response, etc.). All paths
+          # exit 0 so a transient lookup failure doesn't fail the
+          # whole release, but real errors hit stderr instead of
+          # being silently dropped.
           err_log=$(mktemp)
           trap 'rm -f "$err_log"' EXIT
 
           if ! web_release=$(gh api repos/Arc-and-Anchor/rubberfit/releases/latest 2>"$err_log"); then
             if grep -q "Not Found" "$err_log"; then
-              echo "No paired rubberfit (web) release yet. Skipping cross-link footer."
+              echo "No paired rubberfit (web) release found (or sibling repo inaccessible). Skipping cross-link footer."
             else
               echo "Cross-link API call failed; skipping footer." >&2
               cat "$err_log" >&2

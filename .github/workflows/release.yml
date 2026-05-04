@@ -62,6 +62,14 @@ jobs:
 
       - run: npm ci
 
+      # Belt-and-suspenders gate: tags can be pushed from any branch
+      # state, so re-run the same checks the merge gate enforces
+      # before we hand a broken bundle to users via latest.json.
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Cargo tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --workspace
+
       # Pinned to the v0.6.2 commit SHA per supply-chain hardening.
       # Bump deliberately by replacing the SHA + the comment.
       - name: Build & release
@@ -92,13 +100,29 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Tolerate missing sibling release (404) — emit empty JSON.
-          web_release=$(gh api repos/Arc-and-Anchor/rubberfit/releases/latest 2>/dev/null || echo '{}')
+          # Distinguish "no release yet" (404, expected) from real
+          # API errors (403 if sibling becomes private, 5xx, etc.).
+          # In both cases we exit 0 so a transient lookup failure
+          # doesn't fail the whole release, but real errors get
+          # logged to stderr instead of silently dropped.
+          err_log=$(mktemp)
+          trap 'rm -f "$err_log"' EXIT
+
+          if ! web_release=$(gh api repos/Arc-and-Anchor/rubberfit/releases/latest 2>"$err_log"); then
+            if grep -q "Not Found" "$err_log"; then
+              echo "No paired rubberfit (web) release yet. Skipping cross-link footer."
+            else
+              echo "Cross-link API call failed; skipping footer." >&2
+              cat "$err_log" >&2
+            fi
+            exit 0
+          fi
+
           web_tag=$(echo "$web_release" | jq -r '.tag_name // empty')
           web_url=$(echo "$web_release" | jq -r '.html_url // empty')
 
           if [[ -z "$web_tag" || -z "$web_url" ]]; then
-            echo "No paired rubberfit (web) release yet. Skipping cross-link footer."
+            echo "Sibling release lookup returned an unexpected shape; skipping footer."
             exit 0
           fi
 

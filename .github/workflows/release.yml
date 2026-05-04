@@ -32,6 +32,18 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Refuse to release a tag whose commit isn't on main. Without
+      # this, anyone with push access can publish a release from any
+      # branch — including unreviewed work — by pushing `v*` against
+      # an arbitrary commit. We assert origin/main is an ancestor of
+      # the tagged commit (so the tag is at-or-ahead-of main's tip).
+      - name: Assert tag is on main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor origin/main HEAD
 
       - name: Set up Node
         uses: actions/setup-node@v4

@@ -127,7 +127,7 @@ jobs:
           fi
 
           marker="<!-- crosslink:rubberfit -->"
-          current_body=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body')
+          current_body=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // empty')
           # Idempotent: drop the prior marker line and everything after it, then re-append fresh.
           trimmed_body=$(printf '%s' "$current_body" | awk -v m="$marker" 'index($0, m) > 0 { exit } { print }')
           new_body=$(printf '%s\n\n%s\n\n---\n\n🔗 **Web app**: [rubberfit %s](%s)\n' "$trimmed_body" "$marker" "$web_tag" "$web_url")

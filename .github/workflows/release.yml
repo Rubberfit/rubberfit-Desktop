@@ -1,0 +1,165 @@
+name: Release
+
+# Tag-triggered. Push a tag like `v0.2.0` from `main` to cut a release:
+#   git tag v0.2.0
+#   git push --tags
+#
+# This workflow builds signed bundles for macOS (universal), Windows,
+# and Linux, uploads them to a GitHub Release alongside the
+# `latest.json` manifest the Tauri updater reads, then back-links the
+# latest `Arc-and-Anchor/rubberfit` (web) release into the body.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Refuse to release a tag whose commit isn't on main. Without
+      # this, anyone with push access can publish a release from any
+      # branch — including unreviewed work — by pushing `v*` against
+      # an arbitrary commit. The check asserts the tagged commit is
+      # reachable from origin/main (i.e., it lives on main's history).
+      # The inverse direction (origin/main is-ancestor HEAD) would
+      # incorrectly pass any feature branch forked from main's tip —
+      # `--is-ancestor A B` returns true when A is in B's history, so
+      # HEAD must be the first arg.
+      - name: Assert tag is on main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install Linux build deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev
+
+      - run: npm ci
+
+      # Belt-and-suspenders gate: tags can be pushed from any branch
+      # state, so re-run the same checks the merge gate enforces
+      # before we hand a broken bundle to users via latest.json.
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Cargo tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --workspace
+
+      # Pinned to the v0.6.2 commit SHA per supply-chain hardening.
+      # Bump deliberately by replacing the SHA + the comment.
+      - name: Build & release
+        uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "RubberFit Desktop ${{ github.ref_name }}"
+          releaseBody: "See the assets to download and install this version. The auto-updater pulls from `latest.json` published alongside these assets."
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  cross-link:
+    name: cross-link to web release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Append link to latest rubberfit web release
+        env:
+          # Two tokens, scoped by call:
+          # - GH_TOKEN (default for `gh release view`/`edit` against
+          #   THIS repo) is GITHUB_TOKEN, which has write access here.
+          # - CROSS_GH_TOKEN is the only token used for the cross-repo
+          #   lookup. Set CROSS_REPO_TOKEN as a PAT (or GitHub App
+          #   token) with `contents:read` on rubberfit — GITHUB_TOKEN
+          #   can't read private repos in the same org. Falls back to
+          #   GITHUB_TOKEN if unset (works for public siblings;
+          #   silently 404s on private — handled below).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CROSS_GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # Distinguish "release not visible" (404 — either the repo
+          # has no release yet OR GITHUB_TOKEN can't access it; GitHub
+          # deliberately returns 404 not 403 for private repos to
+          # avoid leaking their existence) from other API failures
+          # (5xx, rate limit, malformed response, etc.). All paths
+          # exit 0 so a transient lookup failure doesn't fail the
+          # whole release, but real errors hit stderr instead of
+          # being silently dropped.
+          err_log=$(mktemp)
+          trap 'rm -f "$err_log"' EXIT
+
+          if ! web_release=$(GH_TOKEN="$CROSS_GH_TOKEN" gh api repos/Arc-and-Anchor/rubberfit/releases/latest 2>"$err_log"); then
+            # gh's stderr phrasing isn't strictly stable; tolerate
+            # "HTTP 404", "Not Found", "not found", etc.
+            if grep -qE "(HTTP 404|[Nn]ot [Ff]ound)" "$err_log"; then
+              echo "No paired rubberfit (web) release found (or sibling repo inaccessible). Skipping cross-link footer."
+            else
+              echo "Cross-link API call failed; skipping footer." >&2
+              cat "$err_log" >&2
+            fi
+            exit 0
+          fi
+
+          web_tag=$(echo "$web_release" | jq -r '.tag_name // empty')
+          web_url=$(echo "$web_release" | jq -r '.html_url // empty')
+
+          if [[ -z "$web_tag" || -z "$web_url" ]]; then
+            echo "Sibling release lookup returned an unexpected shape; skipping footer."
+            exit 0
+          fi
+
+          marker="<!-- crosslink:rubberfit -->"
+          current_body=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // empty')
+          # Idempotent: drop the prior marker line and everything after it, then re-append fresh.
+          trimmed_body=$(printf '%s' "$current_body" | awk -v m="$marker" 'index($0, m) > 0 { exit } { print }')
+          new_body=$(printf '%s\n\n%s\n\n---\n\n🔗 **Web app**: [rubberfit %s](%s)\n' "$trimmed_body" "$marker" "$web_tag" "$web_url")
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes "$new_body"
